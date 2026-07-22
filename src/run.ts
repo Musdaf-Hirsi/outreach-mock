@@ -57,7 +57,7 @@ async function main() {
       maxSubscribers: 5_000_000,
       minEngagementRate: 0.01,
       minAvgViews: 50_000,
-      maxCandidates: 8,
+      maxCandidates: 50,
       videosPerChannel: 10,
     },
   });
