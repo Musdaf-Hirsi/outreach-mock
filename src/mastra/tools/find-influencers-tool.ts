@@ -17,7 +17,8 @@ const ENDPOINT_COST: Record<string, number> = {
 };
 
 interface YouTubeSearchItem {
-  id: { channelId: string };
+  id: { channelId?: string; videoId?: string };
+  snippet?: { channelId: string };
 }
 
 interface YouTubeChannel {
@@ -159,6 +160,23 @@ export const findInfluencersTool = createTool({
       ),
     maxCandidates: z.number().default(5).describe("How many channels to search before filtering"),
     videosPerChannel: z.number().default(10).describe("Recent videos to sample for avg views / engagement / sponsor scan"),
+    useIntitleOperator: z
+      .boolean()
+      .default(true)
+      .describe(
+        "Search by video (intitle:<niche>) instead of channel name — YouTube's channel search only " +
+          "matches well-known channel names/descriptions and keeps surfacing the same big accounts. " +
+          "Searching video titles with the intitle: operator surfaces smaller, more specific channels " +
+          "the same way the course's manual long-tail-keyword method does.",
+      ),
+    uploadedWithinDays: z
+      .number()
+      .optional()
+      .describe(
+        "Only surface channels whose sampled video was uploaded within this many days, ordered by " +
+          "recency. Biases results toward fresh, smaller channels instead of the same evergreen big " +
+          "names — the API equivalent of the course's URL-date-filter trick. Omit for no date filter.",
+      ),
   }),
   outputSchema: z.object({
     results: z.array(
@@ -207,18 +225,43 @@ export const findInfluencersTool = createTool({
       minAvgViews,
       maxCandidates,
       videosPerChannel,
+      useIntitleOperator,
+      uploadedWithinDays,
     } = context;
 
     setNode("find-influencers", "active", `searching "${niche}"`);
 
-    const searchData = await youtubeGet<{ items: YouTubeSearchItem[] }>("search", {
+    // Search by video, not by channel name: channel search only matches
+    // known channel titles/descriptions and keeps resurfacing the same big
+    // names. Searching video titles (optionally with intitle:) and pulling
+    // the channelId off each result surfaces smaller, more specific
+    // channels — the API equivalent of the course's long-tail-keyword +
+    // intitle: manual technique.
+    const searchParams: Record<string, string> = {
       part: "snippet",
-      type: "channel",
-      q: niche,
-      maxResults: String(maxCandidates),
-    });
+      type: "video",
+      q: useIntitleOperator ? `intitle:${niche}` : niche,
+      // Over-fetch videos since multiple results often land on the same
+      // channel — we need enough unique channelIds to fill maxCandidates.
+      maxResults: String(Math.min(maxCandidates * 5, 50)),
+    };
+    if (uploadedWithinDays !== undefined) {
+      searchParams.order = "date";
+      searchParams.publishedAfter = new Date(Date.now() - uploadedWithinDays * 24 * 60 * 60 * 1000).toISOString();
+    }
 
-    const channelIds = searchData.items.map((item) => item.id.channelId).filter(Boolean);
+    const searchData = await youtubeGet<{ items: YouTubeSearchItem[] }>("search", searchParams);
+
+    const seen = new Set<string>();
+    const channelIds: string[] = [];
+    for (const item of searchData.items) {
+      const id = item.snippet?.channelId ?? item.id.channelId;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      channelIds.push(id);
+      if (channelIds.length >= maxCandidates) break;
+    }
+
     if (channelIds.length === 0) {
       setNode("find-influencers", "done", "0 candidates found");
       return { results: [] };
