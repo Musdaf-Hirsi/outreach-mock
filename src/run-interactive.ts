@@ -8,6 +8,7 @@ import { senderAgent } from "./mastra/agents/sender-agent";
 import { initGraph, setNode } from "./viz/graph";
 import { sanitizeHumanText } from "./utils/sanitize-text";
 import { updateNegotiationState } from "./tracking/outreach-log";
+import { findFabricatedBrands } from "./utils/brand-guard";
 
 const MAX_DRAFT_ATTEMPTS = 2;
 
@@ -140,12 +141,31 @@ async function main() {
         ? `\nBrands to offer: ${candidate.suggestedBrandsToOffer.join(", ")}`
         : `\nBrands to offer: none — do not name any specific brand, speak only in general terms about finding brand partnerships`;
 
+    let approved = false;
+
     for (let attempt = 1; attempt <= MAX_DRAFT_ATTEMPTS; attempt++) {
       const prompt =
         `Channel: ${candidate.channelName}\nNiche: ${niche}\nRecent video: "${candidate.recentVideoTopic}"${brandOffer}` +
         (feedback ? `\n\nRevise based on this feedback: ${feedback}` : "");
       const draftResult = await draftingAgent.generate(prompt);
       ({ subject, body } = parseDraft(draftResult.text));
+
+      // Deterministic, non-LLM check before the supervisor even sees it —
+      // both the drafting agent's instructions and the supervisor's review
+      // are LLM judgment calls, and both have been observed in practice to
+      // let a fabricated brand name through despite explicit instructions
+      // not to. This catches the exact "brands like X" phrasing pattern
+      // with plain string matching, independent of either model's mood.
+      const fabricated = findFabricatedBrands(body, candidate.suggestedBrandsToOffer);
+      if (fabricated.length > 0) {
+        feedback = `Remove fabricated brand name(s) not in the allowed list: ${fabricated.join(", ")}. ${
+          candidate.suggestedBrandsToOffer.length > 0
+            ? `Only ${candidate.suggestedBrandsToOffer.join(", ")} may be named.`
+            : "No brand may be named at all — speak only in general terms."
+        }`;
+        console.log(`(Blocked before supervisor — fabricated brand name(s): ${fabricated.join(", ")})`);
+        continue;
+      }
 
       const reviewResult = await supervisorAgent.generate(
         `Channel: ${candidate.channelName}\nNiche: ${niche}\nRecipient: ${email.trim()}\n` +
@@ -156,11 +176,18 @@ async function main() {
       const verdict = parseSupervisorVerdict(reviewResult.text);
 
       if (verdict.approved) {
+        approved = true;
         console.log(attempt === 1 ? "(Approved by supervisor on first pass.)" : `(Approved after ${attempt} attempts.)`);
         break;
       }
       feedback = verdict.feedback ?? "Rewrite to follow the humanizing rules more closely.";
       console.log(`(Supervisor requested a revision: ${feedback})`);
+    }
+
+    if (!approved) {
+      console.log(`Skipping ${candidate.channelName} — could not get an approved, non-fabricated draft within ${MAX_DRAFT_ATTEMPTS} attempts.`);
+      skippedCount++;
+      continue;
     }
 
     console.log(`\nSubject: ${subject}\n${body}\n`);

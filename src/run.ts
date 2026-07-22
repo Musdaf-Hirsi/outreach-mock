@@ -5,6 +5,7 @@ import { supervisorAgent } from "./mastra/agents/supervisor-agent";
 import { sendEmailTool } from "./mastra/tools/send-email-tool";
 import { initGraph, setNode } from "./viz/graph";
 import { sanitizeHumanText } from "./utils/sanitize-text";
+import { findFabricatedBrands } from "./utils/brand-guard";
 
 // Non-interactive run for a niche: discover -> draft -> supervisor review ->
 // send. This used to hand a single agent both find-influencers and
@@ -115,6 +116,23 @@ async function main() {
         (feedback ? `\n\nRevise based on this feedback: ${feedback}` : "");
       const draftResult = await draftingAgent.generate(prompt);
       ({ subject, body } = parseDraft(draftResult.text));
+
+      // Deterministic, non-LLM check before the supervisor even sees it —
+      // both the drafting agent's instructions and the supervisor's review
+      // are LLM judgment calls, and both have been observed in practice to
+      // let a fabricated brand name through despite explicit instructions
+      // not to. This catches the exact "brands like X" phrasing pattern
+      // with plain string matching, independent of either model's mood.
+      const fabricated = findFabricatedBrands(body, candidate.suggestedBrandsToOffer);
+      if (fabricated.length > 0) {
+        feedback = `Remove fabricated brand name(s) not in the allowed list: ${fabricated.join(", ")}. ${
+          candidate.suggestedBrandsToOffer.length > 0
+            ? `Only ${candidate.suggestedBrandsToOffer.join(", ")} may be named.`
+            : "No brand may be named at all — speak only in general terms."
+        }`;
+        console.log(`(Blocked before supervisor — fabricated brand name(s): ${fabricated.join(", ")})`);
+        continue;
+      }
 
       const reviewResult = await supervisorAgent.generate(
         `Channel: ${candidate.channelName}\nNiche: ${niche}\nRecipient: ${to}\n` +
