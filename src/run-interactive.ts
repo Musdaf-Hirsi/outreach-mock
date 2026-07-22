@@ -191,6 +191,30 @@ async function main() {
     }
 
     console.log(`\nSubject: ${subject}\n${body}\n`);
+
+    // Manual final say — instead of only trusting the drafting/supervisor
+    // agents to never make a mistake (a brand mention you don't like, a
+    // phrase that reads wrong, anything), you get to edit it directly right
+    // before it sends. Blank on either prompt just keeps the current text.
+    const editChoice = await rl.question(`Edit before sending? (y/n): `);
+    if (editChoice.trim().toLowerCase() === "y") {
+      const newSubject = (await rl.question(`New subject (blank to keep current): `)).trim();
+      if (newSubject) subject = sanitizeHumanText(newSubject);
+
+      const newBody = (await rl.question(`New body (blank to keep current): `)).trim();
+      if (newBody) {
+        body = sanitizeHumanText(newBody);
+        const stillFabricated = findFabricatedBrands(body, candidate.suggestedBrandsToOffer);
+        if (stillFabricated.length > 0) {
+          console.log(
+            `(Heads up: this still names ${stillFabricated.join(", ")}, not on the allowed list for this candidate — your call, not blocked.)`,
+          );
+        }
+      }
+
+      console.log(`\nUpdated:\nSubject: ${subject}\n${body}\n`);
+    }
+
     const confirm = await rl.question(`Send this to ${email.trim()}? (y/n): `);
 
     if (confirm.trim().toLowerCase() !== "y") {
