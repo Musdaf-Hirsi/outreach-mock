@@ -28,6 +28,14 @@ interface OutreachEntry {
   replied?: boolean; // set manually via markReplied() once the contact responds
 }
 
+// A send only counts toward the contract's real milestone numbers if it went
+// to an actual person. Computed from the address itself (not a stored flag)
+// so old entries logged before this distinction existed are still classified
+// correctly without needing a migration.
+export function isPlaceholderEmail(to: string): boolean {
+  return /^outreach-placeholder\+/.test(to) || /@example\.com$/i.test(to);
+}
+
 interface OutreachLog {
   entries: OutreachEntry[];
 }
@@ -92,6 +100,9 @@ export function getFollowUpQueue(now: Date = new Date()): FollowUpCandidate[] {
   for (const [channelId, entries] of byChannel) {
     const last = entries[entries.length - 1];
     if (last.replied) continue;
+    // No point nudging a fake/placeholder address — this is real-outreach
+    // territory, not the mock pipeline.
+    if (isPlaceholderEmail(last.to)) continue;
 
     // Count consecutive follow-ups since the last "initial" (i.e. since the
     // last fresh thread), so a new-thread restart resets the escalation.
@@ -155,24 +166,32 @@ function daysSinceStart(): number {
 
 export interface MilestoneStatus {
   programDay: number;
-  totalOutreaches: number;
-  outreachesToday: number;
+  totalOutreaches: number; // real sends only — counts toward the contract
+  outreachesToday: number; // real sends only
+  placeholderCount: number; // test/mock sends logged, shown for visibility but never counted toward milestones
   phase: "day-0-50" | "day-50-120" | "day-120-plus";
   phaseTarget: number;
-  phaseProgress: number; // count of outreaches counted toward the current phase's target
+  phaseProgress: number; // count of REAL outreaches toward the current phase's target
   onTrack: boolean;
 }
 
 // Milestone rules from the signed IMA agreement:
 //  - by day 50: 500 personalized influencer outreaches (or 5 closed partnerships)
 //  - days 50-120: an additional ~2,500 brand outreaches (avg 36/day)
+//
+// Placeholder/test sends (mock pipeline runs to outreach-placeholder+...@example.com
+// addresses) are excluded from every count here — they never reached a real
+// person, so they can't be allowed to count toward a contractual guarantee.
 export function getMilestoneStatus(): MilestoneStatus {
   const log = loadLog();
   const programDay = daysSinceStart();
-  const totalOutreaches = log.entries.length;
+
+  const realEntries = log.entries.filter((e) => !isPlaceholderEmail(e.to));
+  const placeholderCount = log.entries.length - realEntries.length;
+  const totalOutreaches = realEntries.length;
 
   const today = new Date().toISOString().slice(0, 10);
-  const outreachesToday = log.entries.filter((e) => e.timestamp.startsWith(today)).length;
+  const outreachesToday = realEntries.filter((e) => e.timestamp.startsWith(today)).length;
 
   let phase: MilestoneStatus["phase"];
   let phaseTarget: number;
@@ -187,12 +206,12 @@ export function getMilestoneStatus(): MilestoneStatus {
     phaseTarget = 2500;
     // Count only outreaches sent after day 50 toward this phase's target.
     const day50Cutoff = new Date(new Date(PROGRAM_START_DATE).getTime() + 50 * 24 * 60 * 60 * 1000);
-    phaseProgress = log.entries.filter((e) => new Date(e.timestamp) >= day50Cutoff).length;
+    phaseProgress = realEntries.filter((e) => new Date(e.timestamp) >= day50Cutoff).length;
   } else {
     phase = "day-120-plus";
     phaseTarget = 2500;
     const day50Cutoff = new Date(new Date(PROGRAM_START_DATE).getTime() + 50 * 24 * 60 * 60 * 1000);
-    phaseProgress = log.entries.filter((e) => new Date(e.timestamp) >= day50Cutoff).length;
+    phaseProgress = realEntries.filter((e) => new Date(e.timestamp) >= day50Cutoff).length;
   }
 
   // Rough pacing check: are we on track for the phase's deadline given elapsed days?
@@ -203,5 +222,14 @@ export function getMilestoneStatus(): MilestoneStatus {
   const expectedByNow = Math.round((phaseElapsed / phaseWindow) * phaseTarget);
   const onTrack = phaseProgress >= expectedByNow;
 
-  return { programDay, totalOutreaches, outreachesToday, phase, phaseTarget, phaseProgress, onTrack };
+  return {
+    programDay,
+    totalOutreaches,
+    outreachesToday,
+    placeholderCount,
+    phase,
+    phaseTarget,
+    phaseProgress,
+    onTrack,
+  };
 }

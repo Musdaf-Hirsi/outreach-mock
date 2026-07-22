@@ -6,12 +6,18 @@ function main() {
 
   console.log("\n=== IMA Program Progress ===\n");
   console.log(`Program day: ${status.programDay}`);
-  console.log(`Total outreaches sent (all time): ${status.totalOutreaches}`);
-  console.log(`Outreaches sent today: ${status.outreachesToday}`);
+  console.log(`Real outreaches sent (all time): ${status.totalOutreaches}`);
+  console.log(`Real outreaches sent today: ${status.outreachesToday}`);
   console.log(`Current phase: ${status.phase}`);
   console.log(`Phase target: ${status.phaseTarget}`);
   console.log(`Phase progress: ${status.phaseProgress} / ${status.phaseTarget}`);
   console.log(`On track for deadline: ${status.onTrack ? "YES" : "NO — falling behind pace"}`);
+  if (status.placeholderCount > 0) {
+    console.log(
+      `\n(${status.placeholderCount} test/placeholder send(s) logged — sent to fake outreach-placeholder/@example.com ` +
+        `addresses, NOT counted toward the numbers above. These don't count toward the contract's real milestones.)`,
+    );
+  }
 
   const queue = getFollowUpQueue();
   const due = queue.filter((c) => c.due).length;
