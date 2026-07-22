@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>outreach-mock</title>
+<style>
+  :root {
+    --bg: #f6f5f2;
+    --surface: #ffffff;
+    --border: #dcdad3;
+    --text: #1c1e1a;
+    --text-dim: #5c6058;
+    --accent: #0f8a7d;
+    --accent-soft: #d8efeb;
+    --warm: #b5622a;
+    --warm-soft: #f3e3d6;
+    --danger: #b5342a;
+    --sans: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10120f; --surface: #181b16; --border: #2c3128;
+      --text: #e9ebe4; --text-dim: #9aa091; --accent: #4fd1bd;
+      --accent-soft: #16332e; --warm: #e0985c; --warm-soft: #33261a; --danger: #e07a6f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
+  body { padding: 2rem 1.5rem 5rem; }
+  .wrap { max-width: 820px; margin: 0 auto; }
+
+  h1 { font-size: 1.4rem; margin: 0 0 0.3rem; }
+  .sub { color: var(--text-dim); font-size: 0.92rem; margin: 0 0 1.5rem; }
+
+  .search-row { display: flex; gap: 0.6rem; margin-bottom: 0.6rem; }
+  input[type="text"], input[type="email"] {
+    flex: 1; padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font-size: 0.95rem;
+  }
+  button {
+    padding: 0.6rem 1.1rem; border-radius: 8px; border: none;
+    background: var(--accent); color: #fff; font-weight: 600; font-size: 0.9rem; cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+
+  .progress {
+    font-size: 0.82rem; color: var(--text-dim); margin-bottom: 1.5rem;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.9rem;
+  }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.1rem 1.3rem; margin-bottom: 1rem;
+  }
+  .card.contacted { opacity: 0.55; }
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+  .card-title { font-weight: 700; font-size: 1rem; }
+  .channel-link { color: var(--accent); text-decoration: none; margin-left: 0.3rem; font-weight: 400; }
+  .channel-link:hover { text-decoration: underline; }
+  .card-meta { color: var(--text-dim); font-size: 0.82rem; }
+  .card-video { color: var(--text-dim); font-size: 0.85rem; margin: 0.4rem 0 0.7rem; }
+
+  .tag { display: inline-block; font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 4px; margin-right: 0.4rem; }
+  .tag.found { background: var(--accent-soft); color: var(--accent); }
+  .tag.contacted { background: var(--warm-soft); color: var(--warm); }
+
+  .hints { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.7rem; word-break: break-all; }
+  .hints a { color: var(--accent); }
+
+  .card-actions-row { display: flex; gap: 0.5rem; margin: 0.6rem 0; }
+  .review-note { font-size: 0.78rem; color: var(--accent); margin: 0 0 0.5rem; font-style: italic; }
+  .email-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+  .section-title { font-size: 1rem; margin: 0 0 0.6rem; }
+  .saved-row {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.6rem 0.9rem; margin-bottom: 0.5rem; font-size: 0.9rem;
+  }
+  .draft-box { margin-top: 0.8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 1rem; }
+  .draft-subject { font-weight: 600; margin-bottom: 0.4rem; }
+  .draft-body { white-space: pre-wrap; font-size: 0.9rem; color: var(--text-dim); margin-bottom: 0.7rem; }
+  .actions { display: flex; gap: 0.5rem; }
+
+  .status-msg { font-size: 0.85rem; margin-top: 0.5rem; }
+  .status-msg.ok { color: var(--accent); }
+  .status-msg.err { color: var(--danger); }
+
+  .empty { color: var(--text-dim); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Influencer outreach</h1>
+  <p class="sub">Find real candidates, confirm their real email manually, review the draft, then send.</p>
+
+  <div class="progress" id="progress">Loading progress…</div>
+
+  <div class="search-row">
+    <input type="text" id="niche" placeholder='Niche, e.g. "fitness and gym"' />
+    <button id="searchBtn">Search</button>
+  </div>
+
+  <div id="savedSection" style="display:none">
+    <h2 class="section-title">Saved for later</h2>
+    <div id="savedList"></div>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<script>
+const resultsEl = document.getElementById("results");
+const searchBtn = document.getElementById("searchBtn");
+const nicheInput = document.getElementById("niche");
+const progressEl = document.getElementById("progress");
+
+const savedSectionEl = document.getElementById("savedSection");
+const savedListEl = document.getElementById("savedList");
+
+function renderSavedList() {
+  const saved = JSON.parse(localStorage.getItem("savedCandidates") || "[]");
+  if (saved.length === 0) {
+    savedSectionEl.style.display = "none";
+    return;
+  }
+  savedSectionEl.style.display = "block";
+  savedListEl.innerHTML = "";
+  saved.forEach((c) => {
+    const row = document.createElement("div");
+    row.className = "saved-row";
+    row.innerHTML = `
+      <span>${c.channelName} <span class="card-meta">(${c.savedNiche})</span></span>
+      <button class="secondary remove-saved-btn">Remove</button>
+    `;
+    row.querySelector(".remove-saved-btn").addEventListener("click", () => {
+      const remaining = saved.filter((s) => s.channelId !== c.channelId);
+      localStorage.setItem("savedCandidates", JSON.stringify(remaining));
+      renderSavedList();
+    });
+    savedListEl.appendChild(row);
+  });
+}
+renderSavedList();
+
+async function loadProgress() {
+  const res = await fetch("/api/progress");
+  const p = await res.json();
+  progressEl.textContent =
+    `Program day ${p.programDay} — ${p.phaseProgress}/${p.phaseTarget} outreaches this phase — ` +
+    (p.onTrack ? "on track" : "behind pace");
+}
+loadProgress();
+
+function candidateCard(c, niche) {
+  const div = document.createElement("div");
+  div.className = "card" + (c.alreadyContacted ? " contacted" : "");
+
+  const hints = [];
+  if (c.contactHints.emails.length) hints.push(`Email(s) found: ${c.contactHints.emails.join(", ")}`);
+  if (c.contactHints.links.length) hints.push(`Links: ${c.contactHints.links.slice(0, 3).join(", ")}`);
+
+  const channelUrl = `https://www.youtube.com/channel/${c.channelId}`;
+  const aboutUrl = `${channelUrl}/about`;
+
+  div.innerHTML = `
+    <div class="card-head">
+      <span class="card-title">
+        ${c.channelName}
+        <a href="${channelUrl}" target="_blank" rel="noopener" class="channel-link" title="Open channel">↗</a>
+      </span>
+      <span class="card-meta">${c.subscribers.toLocaleString()} subs · ${(c.engagementRate * 100).toFixed(2)}% engagement · ${c.avgViews.toLocaleString()} avg views</span>
+    </div>
+    <p class="card-video">Latest: "${c.recentVideoTopic}"</p>
+    <p class="hints"><a href="${aboutUrl}" target="_blank" rel="noopener">Open About page to find their email →</a></p>
+    ${c.alreadyContacted ? `<span class="tag contacted">Already contacted ${c.lastContactedAt ? "on " + new Date(c.lastContactedAt).toLocaleDateString() : ""}</span>` : ""}
+    ${hints.length ? `<p class="hints">${hints.join("<br/>")}</p>` : `<p class="hints">No email or links found in public descriptions.</p>`}
+    ${!c.alreadyContacted ? `
+      <div class="card-actions-row">
+        <button class="secondary save-btn">Save for later</button>
+        <button class="secondary skip-btn">Skip →</button>
+      </div>
+      <div class="email-row">
+        <input type="email" placeholder="Real email you found manually" class="email-input" />
+        <button class="draft-btn">Draft</button>
+      </div>
+      <div class="draft-container"></div>
+    ` : ""}
+  `;
+
+  if (!c.alreadyContacted) {
+    const emailInput = div.querySelector(".email-input");
+    const draftBtn = div.querySelector(".draft-btn");
+    const draftContainer = div.querySelector(".draft-container");
+    const saveBtn = div.querySelector(".save-btn");
+    const skipBtn = div.querySelector(".skip-btn");
+
+    skipBtn.addEventListener("click", () => {
+      div.remove();
+    });
+
+    saveBtn.addEventListener("click", () => {
+      const saved = JSON.parse(localStorage.getItem("savedCandidates") || "[]");
+      if (!saved.some((s) => s.channelId === c.channelId)) {
+        saved.push({ ...c, savedNiche: niche, savedAt: new Date().toISOString() });
+        localStorage.setItem("savedCandidates", JSON.stringify(saved));
+      }
+      saveBtn.textContent = "Saved ✓";
+      saveBtn.disabled = true;
+      renderSavedList();
+    });
+
+    draftBtn.addEventListener("click", async () => {
+      if (!emailInput.value.trim()) {
+        alert("Enter the real email first.");
+        return;
+      }
+      draftBtn.disabled = true;
+      draftBtn.textContent = "Drafting…";
+      try {
+        const res = await fetch("/api/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            channelName: c.channelName,
+            niche,
+            recentVideoTopic: c.recentVideoTopic,
+            to: emailInput.value.trim(),
+          }),
+        });
+        const draft = await res.json();
+        if (draft.error) throw new Error(draft.error);
+
+        draftContainer.innerHTML = `
+          <div class="draft-box">
+            ${draft.reviewNote ? `<p class="review-note">${draft.reviewNote}</p>` : ""}
+            <div class="draft-subject">${draft.subject}</div>
+            <div class="draft-body">${draft.body}</div>
+            <div class="actions">
+              <button class="send-btn">Send to ${emailInput.value.trim()}</button>
+              <button class="secondary discard-btn">Discard</button>
+            </div>
+            <div class="status-msg"></div>
+          </div>
+        `;
+
+        const sendBtn = draftContainer.querySelector(".send-btn");
+        const discardBtn = draftContainer.querySelector(".discard-btn");
+        const statusMsg = draftContainer.querySelector(".status-msg");
+
+        sendBtn.addEventListener("click", async () => {
+          sendBtn.disabled = true;
+          sendBtn.textContent = "Sending…";
+          try {
+            const sendRes = await fetch("/api/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to: emailInput.value.trim(),
+                subject: draft.subject,
+                body: draft.body,
+                channelName: c.channelName,
+                niche,
+              }),
+            });
+            const sendResult = await sendRes.json();
+            if (sendResult.error) throw new Error(sendResult.error);
+            statusMsg.textContent = "Sent!";
+            statusMsg.className = "status-msg ok";
+            sendBtn.remove();
+            discardBtn.remove();
+            loadProgress();
+          } catch (err) {
+            statusMsg.textContent = "Failed: " + err.message;
+            statusMsg.className = "status-msg err";
+            sendBtn.disabled = false;
+            sendBtn.textContent = "Retry send";
+          }
+        });
+
+        discardBtn.addEventListener("click", () => {
+          draftContainer.innerHTML = "";
+        });
+      } catch (err) {
+        alert("Draft failed: " + err.message);
+      } finally {
+        draftBtn.disabled = false;
+        draftBtn.textContent = "Draft";
+      }
+    });
+  }
+
+  return div;
+}
+
+searchBtn.addEventListener("click", async () => {
+  const niche = nicheInput.value.trim();
+  if (!niche) return;
+
+  searchBtn.disabled = true;
+  searchBtn.textContent = "Searching…";
+  resultsEl.innerHTML = "";
+
+  try {
+    const res = await fetch(`/api/find?niche=${encodeURIComponent(niche)}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    if (data.results.length === 0) {
+      resultsEl.innerHTML = `<p class="empty">No candidates passed the filters for "${niche}".</p>`;
+    } else {
+      for (const c of data.results) {
+        resultsEl.appendChild(candidateCard(c, niche));
+      }
+    }
+  } catch (err) {
+    resultsEl.innerHTML = `<p class="empty">Search failed: ${err.message}</p>`;
+  } finally {
+    searchBtn.disabled = false;
+    searchBtn.textContent = "Search";
+  }
+});
+
+nicheInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") searchBtn.click();
+});
+</script>
+</body>
+</html>

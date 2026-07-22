@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>outreach-mock — live dashboard</title>
+<style>
+  :root {
+    --bg: #10120f;
+    --surface: #181b16;
+    --border: #2c3128;
+    --text: #e9ebe4;
+    --text-dim: #9aa091;
+    --accent: #4fd1bd;
+    --accent-soft: #16332e;
+    --warm: #e0985c;
+    --pending: #4a4f45;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+  }
+  body { padding: 2rem; }
+  h1 {
+    font-size: 1.1rem;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.3rem;
+  }
+  .status {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-bottom: 1.5rem;
+  }
+  .status .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--warm);
+    margin-right: 6px;
+  }
+  .status.connected .dot { background: var(--accent); }
+
+  #graph {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem 1rem;
+    overflow-x: auto;
+  }
+
+  .node {
+    fill: var(--surface);
+    stroke: var(--pending);
+    stroke-width: 2;
+    transition: stroke 0.3s ease, fill 0.3s ease;
+  }
+  .node.active { stroke: var(--warm); fill: #2a2016; }
+  .node.done { stroke: var(--accent); fill: var(--accent-soft); }
+  .node.error { stroke: #e05c5c; fill: #331616; }
+
+  .node-label {
+    font-size: 12px;
+    font-weight: 700;
+    fill: var(--text);
+    text-anchor: middle;
+  }
+  .node-detail {
+    font-size: 10px;
+    fill: var(--text-dim);
+    text-anchor: middle;
+  }
+  .edge { stroke: var(--pending); stroke-width: 2; fill: none; }
+  .edge.active { stroke: var(--warm); }
+  .edge.done { stroke: var(--accent); }
+
+  #log {
+    margin-top: 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    height: 220px;
+    overflow-y: auto;
+    font-size: 0.82rem;
+  }
+  #log div { color: var(--text-dim); padding: 2px 0; }
+  #log div .t { color: var(--accent); }
+</style>
+</head>
+<body>
+  <h1>outreach-mock — live agent graph</h1>
+  <div class="status" id="conn"><span class="dot"></span><span id="connText">connecting…</span></div>
+
+  <div id="graph">
+    <svg id="svg" width="900" height="160" viewBox="0 0 900 160"></svg>
+  </div>
+
+  <div id="log"></div>
+
+<script>
+const NODES = [
+  { id: "trigger", label: "TRIGGER", x: 60 },
+  { id: "agent", label: "AGENT / DEEPSEEK", x: 260 },
+  { id: "find-influencers", label: "FIND INFLUENCERS", x: 480 },
+  { id: "send-email", label: "SEND EMAIL", x: 700 },
+  { id: "done", label: "DONE", x: 840 },
+];
+const W = 150, H = 70, Y = 50;
+
+const svg = document.getElementById("svg");
+
+function nodeRect(n) {
+  return `
+    <g id="g-${n.id}">
+      <rect class="node" id="rect-${n.id}" x="${n.x - W/2}" y="${Y}" width="${W}" height="${H}" rx="10"></rect>
+      <text class="node-label" x="${n.x}" y="${Y + 30}">${n.label}</text>
+      <text class="node-detail" id="detail-${n.id}" x="${n.x}" y="${Y + 48}"></text>
+    </g>
+  `;
+}
+
+function edgePath(a, b) {
+  const x1 = a.x + W/2, x2 = b.x - W/2, y = Y + H/2;
+  return `<path class="edge" id="edge-${a.id}-${b.id}" d="M ${x1} ${y} L ${x2} ${y}"></path>`;
+}
+
+let svgContent = "";
+for (let i = 0; i < NODES.length - 1; i++) svgContent += edgePath(NODES[i], NODES[i+1]);
+for (const n of NODES) svgContent += nodeRect(n);
+svg.innerHTML = svgContent;
+
+function setNodeState(id, status, detail) {
+  const rect = document.getElementById(`rect-${id}`);
+  const detailEl = document.getElementById(`detail-${id}`);
+  if (!rect) return;
+  rect.setAttribute("class", `node ${status}`);
+  if (detail !== undefined && detailEl) detailEl.textContent = detail.slice(0, 24);
+
+  const idx = NODES.findIndex((n) => n.id === id);
+  if (status === "done" && idx > 0) {
+    const prevEdge = document.getElementById(`edge-${NODES[idx-1].id}-${id}`);
+    if (prevEdge) prevEdge.setAttribute("class", "edge done");
+  }
+  if (status === "active" && idx > 0) {
+    const prevEdge = document.getElementById(`edge-${NODES[idx-1].id}-${id}`);
+    if (prevEdge) prevEdge.setAttribute("class", "edge active");
+  }
+}
+
+function logLine(text) {
+  const log = document.getElementById("log");
+  const div = document.createElement("div");
+  const t = new Date().toLocaleTimeString();
+  div.innerHTML = `<span class="t">[${t}]</span> ${text}`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+const connEl = document.getElementById("conn");
+const connText = document.getElementById("connText");
+
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}`);
+  ws.onopen = () => {
+    connEl.classList.add("connected");
+    connText.textContent = "connected — waiting for agent run";
+  };
+  ws.onclose = () => {
+    connEl.classList.remove("connected");
+    connText.textContent = "disconnected — retrying…";
+    setTimeout(connect, 1500);
+  };
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    setNodeState(msg.id, msg.status, msg.detail);
+    logLine(`${msg.label ?? msg.id}: ${msg.status}${msg.detail ? " — " + msg.detail : ""}`);
+  };
+}
+connect();
+</script>
+</body>
+</html>
