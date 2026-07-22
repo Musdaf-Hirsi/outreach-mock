@@ -40,11 +40,11 @@ async function main() {
   const findResult = await (findInfluencersTool.execute as any)({
     context: {
       niche,
-      minSubscribers: 50_000,
-      maxSubscribers: 1_000_000,
-      minEngagementRate: 0.01,
-      minAvgViews: 50_000,
-      maxCandidates: 5,
+      minSubscribers: 5_000,
+      maxSubscribers: 2_000_000,
+      minEngagementRate: 0.005,
+      minAvgViews: 3_000,
+      maxCandidates: 8,
       videosPerChannel: 10,
     },
   });
