@@ -185,9 +185,14 @@ async function main() {
     }
 
     if (!approved) {
-      console.log(`Skipping ${candidate.channelName} — could not get an approved, non-fabricated draft within ${MAX_DRAFT_ATTEMPTS} attempts.`);
-      skippedCount++;
-      continue;
+      // Don't throw the candidate away just because the automated draft
+      // never came clean — show what it last produced and the reason it
+      // wasn't approved (fabricated brand names or supervisor feedback),
+      // and let the human fix it directly rather than losing the lead.
+      console.log(
+        `\n(Could not get an auto-approved draft within ${MAX_DRAFT_ATTEMPTS} attempts — last issue: ${feedback})`,
+      );
+      console.log(`Here's the last attempt — edit it below to fix the issue, or skip this candidate.`);
     }
 
     console.log(`\nSubject: ${subject}\n${body}\n`);
@@ -196,7 +201,15 @@ async function main() {
     // agents to never make a mistake (a brand mention you don't like, a
     // phrase that reads wrong, anything), you get to edit it directly right
     // before it sends. Blank on either prompt just keeps the current text.
-    const editChoice = await rl.question(`Edit before sending? (y/n): `);
+    const editChoice = await rl.question(
+      approved ? `Edit before sending? (y/n): ` : `Edit before sending? (y/n, n = skip this candidate): `,
+    );
+
+    if (!approved && editChoice.trim().toLowerCase() !== "y") {
+      console.log(`Skipped — not auto-approved and no edit made.`);
+      skippedCount++;
+      continue;
+    }
     if (editChoice.trim().toLowerCase() === "y") {
       const newSubject = (await rl.question(`New subject (blank to keep current): `)).trim();
       if (newSubject) subject = sanitizeHumanText(newSubject);
