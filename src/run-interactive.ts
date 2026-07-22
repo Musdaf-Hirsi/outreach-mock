@@ -7,8 +7,23 @@ import { supervisorAgent } from "./mastra/agents/supervisor-agent";
 import { senderAgent } from "./mastra/agents/sender-agent";
 import { initGraph, setNode } from "./viz/graph";
 import { sanitizeHumanText } from "./utils/sanitize-text";
+import { updateNegotiationState } from "./tracking/outreach-log";
 
 const MAX_DRAFT_ATTEMPTS = 2;
+
+// Course qualification dimension: for English-language campaigns, look for
+// at least one high-purchasing-power country in a creator's top 3 audience
+// countries. This can't be pulled from the YouTube API — it only exists if
+// you've checked a media kit yourself — so it's an optional, skippable
+// prompt, informational only. It never auto-skips a candidate: partial
+// coverage (only the candidates someone bothered to check) shouldn't
+// masquerade as a real, consistently-applied filter.
+const GOLDEN_COUNTRY_KEYWORDS = ["us", "usa", "united states", "uk", "united kingdom", "canada", "australia"];
+
+function mentionsGoldenCountry(note: string): boolean {
+  const lower = note.toLowerCase();
+  return GOLDEN_COUNTRY_KEYWORDS.some((kw) => lower.includes(kw));
+}
 
 function parseSupervisorVerdict(text: string): { approved: boolean; feedback?: string } {
   const decision = /DECISION:\s*(APPROVE|REVISE)/i.exec(text)?.[1]?.toUpperCase();
@@ -82,6 +97,20 @@ async function main() {
     }
     if (candidate.suggestedBrandsToOffer.length > 0) {
       console.log(`Brands to offer (seen elsewhere in this niche, not with this creator): ${candidate.suggestedBrandsToOffer.join(", ")}`);
+    }
+
+    const audienceNote = (
+      await rl.question(
+        `Know this creator's audience top countries (from a media kit or similar)? Paste them, or press Enter to skip: `,
+      )
+    ).trim();
+    if (audienceNote) {
+      updateNegotiationState(candidate.channelId, { channelName: candidate.channelName, audienceNote });
+      if (!mentionsGoldenCountry(audienceNote)) {
+        console.log(
+          `(Note: no high-purchasing-power country (US/UK/Canada/Australia) mentioned — worth weighing before pitching brands, not a blocker.)`,
+        );
+      }
     }
 
     const email = await rl.question(

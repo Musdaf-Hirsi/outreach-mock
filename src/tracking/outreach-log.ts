@@ -62,6 +62,12 @@ export interface NegotiationState {
   // technically close.
   rating?: number;
   ratingNote?: string;
+  // Manually-entered audience geography/demographics note — YouTube's API
+  // doesn't expose this, so it's only ever populated when the user has
+  // checked a media kit or equivalent themselves. Informational only, never
+  // used to auto-skip a candidate — partial coverage (only candidates
+  // someone bothered to check) shouldn't masquerade as a real filter.
+  audienceNote?: string;
   updatedAt: string; // ISO
 }
 
