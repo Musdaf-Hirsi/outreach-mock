@@ -94,10 +94,16 @@ async function main() {
     let subject = "";
     let body = "";
 
+    // Always state the brand list explicitly, even when empty — omitting
+    // the line entirely left room for the drafting agent to invent a
+    // plausible-sounding brand name anyway (observed: it named real brands
+    // that were never actually supplied). Being unambiguous here, plus
+    // giving the supervisor the same ground truth to check against below,
+    // closes that gap at the code level instead of trusting the prompt alone.
     const brandOffer =
       candidate.suggestedBrandsToOffer.length > 0
         ? `\nBrands to offer: ${candidate.suggestedBrandsToOffer.join(", ")}`
-        : "";
+        : `\nBrands to offer: none — do not name any specific brand, speak only in general terms about finding brand partnerships`;
 
     for (let attempt = 1; attempt <= MAX_DRAFT_ATTEMPTS; attempt++) {
       const prompt =
@@ -108,7 +114,9 @@ async function main() {
 
       const reviewResult = await supervisorAgent.generate(
         `Channel: ${candidate.channelName}\nNiche: ${niche}\nRecipient: ${email.trim()}\n` +
-          `Subject: ${subject}\nBody: ${body}`,
+          `Allowed brands to be named (reject if any OTHER brand name appears in the email): ${
+            candidate.suggestedBrandsToOffer.length > 0 ? candidate.suggestedBrandsToOffer.join(", ") : "none"
+          }\nSubject: ${subject}\nBody: ${body}`,
       );
       const verdict = parseSupervisorVerdict(reviewResult.text);
 
