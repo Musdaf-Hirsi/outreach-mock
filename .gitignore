@@ -3,5 +3,6 @@ dist/
 .env
 gmail-token.json
 youtube-quota.json
+gmail-send-quota.json
 outreach-log.json
 .mastra/

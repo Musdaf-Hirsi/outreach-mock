@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAuthorizedGmailClient } from "../../gmail/auth";
 import { setNode, logDetail } from "../../viz/graph";
 import { recordOutreach, getContactHistory } from "../../tracking/outreach-log";
+import { consumeSendQuota, sleep, getSendDelayMs } from "../../tracking/gmail-send-quota";
 
 function buildRawMessage(
   to: string,
@@ -62,6 +63,13 @@ export const sendEmailTool = createTool({
     }
 
     setNode("send-email", "active", `sending to ${to}`);
+
+    // Guard the daily send cap before spending it, and pace sends out so a
+    // loop over many candidates doesn't fire a burst of identical-shaped
+    // emails back-to-back — the same protection youtube-quota.ts already
+    // gives the discovery side, now on the sending side too.
+    consumeSendQuota();
+    await sleep(getSendDelayMs());
 
     const auth = await getAuthorizedGmailClient();
     const gmail = google.gmail({ version: "v1", auth });
