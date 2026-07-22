@@ -10,8 +10,10 @@
     "dashboard": "tsx src/viz/server.ts",
     "report": "tsx src/report.ts",
     "followups": "tsx src/run-followups.ts",
+    "negotiate": "tsx src/run-negotiate.ts",
     "mark-replied": "tsx src/mark-replied.ts",
-    "gmail-auth": "tsx src/gmail/get-token.ts"
+    "gmail-auth": "tsx src/gmail/get-token.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^0.1.0",

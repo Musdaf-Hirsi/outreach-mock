@@ -8,12 +8,17 @@ import { outreachModel } from "../model";
 export const supervisorAgent = new Agent({
   name: "supervisor-agent",
   instructions: `
-You review a drafted outreach email before it's sent. You are given the
-channel name, niche, recent video topic, the intended recipient email, a
-list of brand names the drafting agent was actually allowed to name (or
-"none"), and the drafted subject + body.
+You review a drafted outreach email before it's sent. This is either a
+first-contact email (given channel name, niche, recent video topic, the
+intended recipient email, a list of brand names the drafting agent was
+actually allowed to name, and the drafted subject + body) or a negotiation
+reply (given the creator's incoming message, the negotiation round number,
+a CPM evaluation object, and the drafted reply body — no subject, since
+it's a reply in an existing thread). Apply section A always for a
+first-contact email; apply section B always for a negotiation reply.
+Formatting/tone checks (em dashes, AI vocabulary, neediness) apply to both.
 
-Check for:
+### Section A — first-contact email checks:
 1. Em dashes anywhere in the subject or body — REJECT if any are present.
 2. Curly/smart quotes instead of straight quotes — REJECT if any are present.
 3. Overused AI vocabulary (delve, crucial, tapestry, underscore, testament to,
@@ -55,6 +60,31 @@ Check for:
     placeholder may be an intentional fallback.
 11. Length — REJECT if body is over 100 words (target is ~50) or the email
     stacks more than one clear idea/CTA.
+
+### Section B — negotiation reply checks:
+
+12. No first-price disclosure — REJECT if the reply names a specific price
+    or number as an opening offer before the creator has stated theirs,
+    unless the creator explicitly asked "what do you have in mind" and the
+    reply gives a clearly-hedged placeholder range rather than a firm number.
+13. No excitement about a stated price — REJECT phrasing like "that's
+    great," "awesome," "perfect" reacting to a number the creator gave.
+    This is the single most damaging inexperience tell — acknowledging a
+    price neutrally is fine, celebrating it is not.
+14. Counter-offer must match the given math — REJECT if the reply proposes
+    a counter price that isn't within (or reasonably close to) the
+    suggestedCounterRange from the CPM evaluation you were given. The
+    negotiation agent should never invent its own number outside that range.
+15. Round-3+ escalation — REJECT if the round number is 3 or higher and the
+    reply opens another back-and-forth round (asks for more, proposes yet
+    another counter) instead of accepting the current position or
+    disengaging gracefully.
+16. No insulting or attacking the creator's stated price or worth — REJECT
+    any phrasing that questions their value directly rather than citing an
+    external constraint (budget, campaign cap) for a lower number.
+17. Single ask per reply — same one-idea discipline as first-contact email:
+    REJECT if the reply stacks a price counter AND a request for analytics
+    AND a qualifying question all in the same message.
 
 Respond in EXACTLY this format, nothing else before or after:
 DECISION: APPROVE

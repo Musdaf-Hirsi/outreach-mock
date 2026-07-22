@@ -44,13 +44,19 @@ async function main() {
   setNode("trigger", "done", `niche: "${niche}"`);
   setNode("agent", "active", "finding candidates...");
 
+  // Course's own stated criteria (lesson "How to Find Influencers"):
+  // "people between 50 and 100,000 followers, and an average of minimum
+  // 50,000 views per video... you can always work with bigger creators."
+  // The floor is real and matches the course exactly; there's no course-
+  // given ceiling since bigger creators are explicitly fine too, so the max
+  // here is generous rather than the original arbitrary 1M cap.
   const findResult = await (findInfluencersTool.execute as any)({
     context: {
       niche,
-      minSubscribers: 5_000,
-      maxSubscribers: 2_000_000,
-      minEngagementRate: 0.005,
-      minAvgViews: 3_000,
+      minSubscribers: 50_000,
+      maxSubscribers: 5_000_000,
+      minEngagementRate: 0.01,
+      minAvgViews: 50_000,
       maxCandidates: 8,
       videosPerChannel: 10,
     },

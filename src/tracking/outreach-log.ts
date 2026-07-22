@@ -36,6 +36,99 @@ export function isPlaceholderEmail(to: string): boolean {
   return /^outreach-placeholder\+/.test(to) || /@example\.com$/i.test(to);
 }
 
+// --- Negotiation state -----------------------------------------------------
+// Separate from OutreachEntry above: OutreachEntry is an append-only history
+// of sends, but negotiation state is "current status per channel" — round
+// number, last price on the table, deal status — so it's a keyed upsert
+// store in its own file rather than another log entry shape.
+
+const NEGOTIATION_FILE = path.resolve("negotiation-state.json");
+
+export type DealStatus = "cold" | "replied" | "negotiating" | "closed" | "declined" | "parked";
+
+export interface NegotiationState {
+  channelId: string;
+  channelName: string;
+  negotiationRound: number; // 0 = no negotiation reply sent yet
+  lastQuotedPrice?: number; // the creator's most recently stated price
+  lastCounterOffered?: number; // the agency's most recent counter
+  dealStatus: DealStatus;
+  timelineSetAt?: string; // ISO — course rule: after provisional close, set and honor a specific next-steps timeline
+  updatedAt: string; // ISO
+}
+
+interface NegotiationStore {
+  channels: Record<string, NegotiationState>;
+}
+
+function loadNegotiationStore(): NegotiationStore {
+  if (fs.existsSync(NEGOTIATION_FILE)) {
+    return JSON.parse(fs.readFileSync(NEGOTIATION_FILE, "utf-8")) as NegotiationStore;
+  }
+  return { channels: {} };
+}
+
+function saveNegotiationStore(store: NegotiationStore) {
+  fs.writeFileSync(NEGOTIATION_FILE, JSON.stringify(store, null, 2));
+}
+
+// Returns the current negotiation state for a channel, defaulting to a
+// fresh "cold" record if nothing has been tracked yet — callers never have
+// to null-check before reading a round number or deal status.
+export function getNegotiationState(channelId: string, channelName?: string): NegotiationState {
+  const store = loadNegotiationStore();
+  return (
+    store.channels[channelId] ?? {
+      channelId,
+      channelName: channelName ?? channelId,
+      negotiationRound: 0,
+      dealStatus: "cold",
+      updatedAt: new Date().toISOString(),
+    }
+  );
+}
+
+// Merges a partial update into a channel's negotiation state — used after
+// each negotiation reply is sent (bump the round, record the latest
+// price/counter) or whenever deal status changes (replied, closed, parked).
+export function updateNegotiationState(
+  channelId: string,
+  patch: Partial<Omit<NegotiationState, "channelId" | "updatedAt">> & { channelName?: string },
+): NegotiationState {
+  const store = loadNegotiationStore();
+  const current = getNegotiationState(channelId, patch.channelName);
+  const next: NegotiationState = {
+    ...current,
+    ...patch,
+    channelId,
+    updatedAt: new Date().toISOString(),
+  };
+  store.channels[channelId] = next;
+  saveNegotiationStore(store);
+  return next;
+}
+
+// Convenience wrapper for the common case: a negotiation reply just went
+// out — bump the round and record whatever price info applies.
+export function recordNegotiationRound(
+  channelId: string,
+  update: {
+    channelName?: string;
+    quotedPrice?: number;
+    counterOffered?: number;
+    dealStatus?: DealStatus;
+  },
+): NegotiationState {
+  const current = getNegotiationState(channelId, update.channelName);
+  return updateNegotiationState(channelId, {
+    channelName: update.channelName ?? current.channelName,
+    negotiationRound: current.negotiationRound + 1,
+    lastQuotedPrice: update.quotedPrice ?? current.lastQuotedPrice,
+    lastCounterOffered: update.counterOffered ?? current.lastCounterOffered,
+    dealStatus: update.dealStatus ?? (current.dealStatus === "cold" ? "negotiating" : current.dealStatus),
+  });
+}
+
 interface OutreachLog {
   entries: OutreachEntry[];
 }
@@ -156,6 +249,31 @@ export function getContactHistory(channelId: string): ContactHistory {
   }
   const last = matches[matches.length - 1];
   return { contacted: true, lastContactedAt: last.timestamp, timesContacted: matches.length };
+}
+
+export interface LastSendInfo {
+  to: string;
+  niche: string;
+  channelName: string;
+  gmailThreadId?: string;
+  rfcMessageId?: string;
+}
+
+// Looks up the most recent send to a channel so a negotiation reply can be
+// threaded correctly without asking the human to paste a Gmail thread ID by
+// hand — reuses the same threading data already captured for follow-ups.
+export function getLastSendInfo(channelId: string): LastSendInfo | undefined {
+  const log = loadLog();
+  const matches = log.entries.filter((e) => e.channelId === channelId);
+  if (matches.length === 0) return undefined;
+  const last = matches[matches.length - 1];
+  return {
+    to: last.to,
+    niche: last.niche,
+    channelName: last.channelName,
+    gmailThreadId: last.gmailThreadId,
+    rfcMessageId: last.rfcMessageId,
+  };
 }
 
 function daysSinceStart(): number {
