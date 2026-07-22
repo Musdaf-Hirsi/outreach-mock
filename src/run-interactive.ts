@@ -64,11 +64,18 @@ async function main() {
     console.log(`\n--- ${candidate.channelName} ---`);
     console.log(`Subscribers: ${candidate.subscribers.toLocaleString()} | Avg views: ${candidate.avgViews.toLocaleString()}`);
     console.log(`Latest video: "${candidate.recentVideoTopic}"`);
+    console.log(
+      `Posting: ${candidate.postingConsistency}${candidate.daysSinceLastUpload !== null ? ` (last upload ${candidate.daysSinceLastUpload}d ago)` : ""}` +
+        (candidate.postingConsistency === "sporadic" ? " — course flag: not a reliable partner for a multi-month campaign" : ""),
+    );
     if (candidate.contactHints.emails.length > 0) {
       console.log(`Auto-found email(s): ${candidate.contactHints.emails.join(", ")}`);
     }
     if (candidate.contactHints.links.length > 0) {
       console.log(`Auto-found link(s): ${candidate.contactHints.links.slice(0, 3).join(", ")}`);
+    }
+    if (candidate.suggestedBrandsToOffer.length > 0) {
+      console.log(`Brands to offer (seen elsewhere in this niche, not with this creator): ${candidate.suggestedBrandsToOffer.join(", ")}`);
     }
 
     const email = await rl.question(
@@ -87,9 +94,14 @@ async function main() {
     let subject = "";
     let body = "";
 
+    const brandOffer =
+      candidate.suggestedBrandsToOffer.length > 0
+        ? `\nBrands to offer: ${candidate.suggestedBrandsToOffer.join(", ")}`
+        : "";
+
     for (let attempt = 1; attempt <= MAX_DRAFT_ATTEMPTS; attempt++) {
       const prompt =
-        `Channel: ${candidate.channelName}\nNiche: ${niche}\nRecent video: "${candidate.recentVideoTopic}"` +
+        `Channel: ${candidate.channelName}\nNiche: ${niche}\nRecent video: "${candidate.recentVideoTopic}"${brandOffer}` +
         (feedback ? `\n\nRevise based on this feedback: ${feedback}` : "");
       const draftResult = await draftingAgent.generate(prompt);
       ({ subject, body } = parseDraft(draftResult.text));

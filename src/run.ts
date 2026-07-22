@@ -76,6 +76,15 @@ async function main() {
       continue;
     }
 
+    // Course qualification rule: sporadic posters ("hobby, not a business")
+    // aren't a reliable partner for a multi-month brand campaign — skip
+    // rather than spend a supervised draft/review cycle on a dead lead.
+    if (candidate.postingConsistency === "sporadic") {
+      console.log(`Skipping ${candidate.channelName} — sporadic posting pattern, not a reliable partner for a campaign.`);
+      skippedCount++;
+      continue;
+    }
+
     setNode("send-email", "active", `drafting for ${candidate.channelName}`);
 
     let feedback = "";
@@ -83,9 +92,14 @@ async function main() {
     let body = "";
     let approved = false;
 
+    const brandOffer =
+      candidate.suggestedBrandsToOffer.length > 0
+        ? `\nBrands to offer: ${candidate.suggestedBrandsToOffer.join(", ")}`
+        : "";
+
     for (let attempt = 1; attempt <= MAX_DRAFT_ATTEMPTS; attempt++) {
       const prompt =
-        `Channel: ${candidate.channelName}\nNiche: ${niche}\nRecent video: "${candidate.recentVideoTopic}"` +
+        `Channel: ${candidate.channelName}\nNiche: ${niche}\nRecent video: "${candidate.recentVideoTopic}"${brandOffer}` +
         (feedback ? `\n\nRevise based on this feedback: ${feedback}` : "");
       const draftResult = await draftingAgent.generate(prompt);
       ({ subject, body } = parseDraft(draftResult.text));

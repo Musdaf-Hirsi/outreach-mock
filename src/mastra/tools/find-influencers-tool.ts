@@ -30,7 +30,7 @@ interface YouTubeChannel {
 
 interface YouTubePlaylistItem {
   contentDetails: { videoId: string };
-  snippet: { title: string };
+  snippet: { title: string; publishedAt: string };
 }
 
 interface YouTubeVideoStats {
@@ -54,6 +54,38 @@ function findContactHints(texts: string[]): { emails: string[]; links: string[] 
     for (const match of text.matchAll(LINK_REGEX)) links.add(match[0]);
   }
   return { emails: [...emails], links: [...links] };
+}
+
+// Course technique ("How to Message Influencers"): before pitching, open
+// several influencers' recent videos, list every brand they've mentioned as
+// a sponsor, then name 2 brands in the niche the *target* creator hasn't
+// worked with yet as the email's offer. This scans the same video
+// descriptions we already pull (no extra API calls) for sponsor-style
+// mentions, so that brand list can be built automatically instead of by
+// hand. Regex-based brand-name extraction is inherently a heuristic — it
+// catches the common phrasing patterns, not every possible sponsor mention.
+// JS regex has no per-group case flag, so this is two passes: find the
+// keyword phrase case-insensitively (a sentence starting "Thanks to
+// Squarespace..." is as common as mid-sentence "thanks to"), then extract
+// the brand name from what follows with the first word matched loosely but
+// every additional word required to start with a capital letter — that
+// stops a greedy multi-word capture from swallowing ordinary lowercase
+// filler words ("thanks to Squarespace for supporting" should stop at
+// "Squarespace", not run on to "for supporting").
+const SPONSOR_KEYWORD_REGEX =
+  /\b(?:sponsored by|in partnership with|thanks to|brought to you by|thank you to|this video is sponsored by|paid partnership with)\s+/gi;
+const BRAND_NAME_REGEX = /^([A-Za-z][A-Za-z0-9&'.]*(?:\s+[A-Z][A-Za-z0-9&'.]*){0,2})/;
+
+function findSponsorBrandMentions(texts: string[]): string[] {
+  const brands = new Set<string>();
+  for (const text of texts) {
+    for (const keywordMatch of text.matchAll(SPONSOR_KEYWORD_REGEX)) {
+      const afterKeyword = text.slice(keywordMatch.index! + keywordMatch[0].length);
+      const brand = BRAND_NAME_REGEX.exec(afterKeyword)?.[1]?.trim();
+      if (brand && brand.length <= 40 && /^[A-Z]/.test(brand)) brands.add(brand);
+    }
+  }
+  return [...brands];
 }
 
 async function youtubeGet<T>(path: string, params: Record<string, string>): Promise<T> {
@@ -92,6 +124,34 @@ interface RecentVideoBreakdown {
 // Pulls the last N videos for a channel with per-video view/like/comment
 // counts, plus the averages computed from that same list — so callers can
 // see the actual per-video breakdown, not just an aggregate.
+// Qualification dimension from the course ("How to Qualify Influencers"):
+// posting less than once a month, or in sporadic bursts, means "it's a
+// hobby, not a business" — not a reliable partner for a multi-month brand
+// campaign. Computed from the same playlistItems publishedAt timestamps we
+// already pull, no extra API calls.
+function computePostingConsistency(publishedDates: string[]): {
+  postingConsistency: "consistent" | "sporadic" | "unknown";
+  daysSinceLastUpload: number | null;
+} {
+  if (publishedDates.length < 2) {
+    return { postingConsistency: "unknown", daysSinceLastUpload: null };
+  }
+  const sorted = [...publishedDates].map((d) => new Date(d).getTime()).sort((a, b) => b - a);
+  const daysSinceLastUpload = Math.floor((Date.now() - sorted[0]) / (1000 * 60 * 60 * 24));
+
+  const gapsDays: number[] = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    gapsDays.push((sorted[i] - sorted[i + 1]) / (1000 * 60 * 60 * 24));
+  }
+  const avgGapDays = gapsDays.reduce((sum, g) => sum + g, 0) / gapsDays.length;
+
+  // "At least once a month with a predictable pattern" — a >45-day average
+  // gap between sampled uploads, or having gone stale (>60 days since the
+  // last one), both read as sporadic per the course's bar.
+  const sporadic = avgGapDays > 45 || daysSinceLastUpload > 60;
+  return { postingConsistency: sporadic ? "sporadic" : "consistent", daysSinceLastUpload };
+}
+
 async function getRecentVideoStats(uploadsPlaylistId: string, maxVideos: number) {
   const playlistData = await youtubeGet<{ items: YouTubePlaylistItem[] }>("playlistItems", {
     part: "contentDetails,snippet",
@@ -107,6 +167,9 @@ async function getRecentVideoStats(uploadsPlaylistId: string, maxVideos: number)
       recentVideoTopic: "",
       recentVideos: [] as RecentVideoBreakdown[],
       videoDescriptions: [] as string[],
+      postingConsistency: "unknown" as const,
+      daysSinceLastUpload: null as number | null,
+      possibleFakeEngagement: false,
     };
   }
 
@@ -139,7 +202,29 @@ async function getRecentVideoStats(uploadsPlaylistId: string, maxVideos: number)
   const engagementRate = totalEngagement / recentVideos.length;
   const recentVideoTopic = playlistData.items[0]?.snippet.title ?? "";
 
-  return { avgViews, engagementRate, recentVideoTopic, recentVideos, videoDescriptions };
+  const { postingConsistency, daysSinceLastUpload } = computePostingConsistency(
+    playlistData.items.map((item) => item.snippet.publishedAt).filter(Boolean),
+  );
+
+  // Course red flag: "less than 1% comments... bot followers, AI comments."
+  // Bought/fake engagement typically inflates likes far more than comments
+  // (comments are harder to fake convincingly at scale), so a suspiciously
+  // low comment-to-view ratio alongside otherwise-normal-looking engagement
+  // is the tell, not raw engagement rate alone.
+  const totalCommentRate = recentVideos.reduce((sum, v) => (v.views > 0 ? sum + v.comments / v.views : sum), 0);
+  const avgCommentRate = totalCommentRate / recentVideos.length;
+  const possibleFakeEngagement = engagementRate >= 0.01 && avgCommentRate < 0.001;
+
+  return {
+    avgViews,
+    engagementRate,
+    recentVideoTopic,
+    recentVideos,
+    videoDescriptions,
+    postingConsistency,
+    daysSinceLastUpload,
+    possibleFakeEngagement,
+  };
 }
 
 export const findInfluencersTool = createTool({
@@ -150,7 +235,15 @@ export const findInfluencersTool = createTool({
     niche: z.string().describe("Niche keyword to search, e.g. 'halal fitness' or 'personal finance'"),
     minSubscribers: z.number().default(50_000),
     maxSubscribers: z.number().default(1_000_000),
-    minEngagementRate: z.number().default(0.01),
+    minEngagementRate: z
+      .number()
+      .default(0.01)
+      .describe(
+        "Floor for the engagement-rate bar — the actual bar used per candidate is the higher of this " +
+          "and a subscriber-size-based tier (course rule: smaller creators need 3-8% engagement, 1M+ " +
+          "subscriber accounts are healthy at ~3%), so a small/hollow channel can't sneak through on a " +
+          "loose flat threshold.",
+      ),
     minAvgViews: z
       .number()
       .default(50_000)
@@ -213,6 +306,23 @@ export const findInfluencersTool = createTool({
         // each `npm run dev` invocation otherwise starts with no memory.
         alreadyContacted: z.boolean(),
         lastContactedAt: z.string().optional(),
+        // Course qualification dimensions (see "How to Qualify Influencers")
+        // computed from data already pulled above — no extra API calls.
+        postingConsistency: z.enum(["consistent", "sporadic", "unknown"]),
+        daysSinceLastUpload: z.number().nullable(),
+        possibleFakeEngagement: z.boolean().describe(
+          "Suspiciously low comment-to-view ratio despite decent-looking overall engagement — the course's " +
+            "bought/fake-engagement tell (likes are cheap to fake at scale, real comments are not).",
+        ),
+        engagementThresholdApplied: z.number().describe("The actual engagement-rate bar this candidate was filtered against"),
+        // Course technique ("How to Message Influencers" offer section):
+        // brands mentioned as sponsors in this candidate's own video
+        // descriptions, and 1-2 brands seen elsewhere in this niche's
+        // candidate pool that this creator has NOT worked with — a ready
+        // starting point for the email's offer instead of a vague "perfect
+        // fit" claim or a fabricated "we have brands" lie.
+        sponsorBrandsMentioned: z.array(z.string()),
+        suggestedBrandsToOffer: z.array(z.string()),
       }),
     ),
   }),
@@ -288,15 +398,33 @@ export const findInfluencersTool = createTool({
         continue;
       }
 
-      const { avgViews, engagementRate, recentVideoTopic, recentVideos, videoDescriptions } = await getRecentVideoStats(
-        channel.contentDetails.relatedPlaylists.uploads,
-        videosPerChannel,
-      );
+      const {
+        avgViews,
+        engagementRate,
+        recentVideoTopic,
+        recentVideos,
+        videoDescriptions,
+        postingConsistency,
+        daysSinceLastUpload,
+        possibleFakeEngagement,
+      } = await getRecentVideoStats(channel.contentDetails.relatedPlaylists.uploads, videosPerChannel);
 
-      if (engagementRate < minEngagementRate) {
+      // Course rule: "3-8% on smaller creators, 3% is healthy at 1M+ views."
+      // A flat threshold lets small/hollow channels through on a loose bar
+      // while being needlessly strict on legitimately large accounts, so
+      // scale the floor with subscriber size and use the caller's
+      // minEngagementRate only as an additional (never lower) floor.
+      const tierFloor = subscribers >= 1_000_000 ? 0.03 : subscribers >= 250_000 ? 0.035 : 0.04;
+      const engagementThresholdApplied = Math.max(minEngagementRate, tierFloor);
+
+      if (engagementRate < engagementThresholdApplied) {
         logDetail(
-          `${label} — SKIPPED (engagement ${(engagementRate * 100).toFixed(2)}% below ${(minEngagementRate * 100).toFixed(2)}% minimum)`,
+          `${label} — SKIPPED (engagement ${(engagementRate * 100).toFixed(2)}% below ${(engagementThresholdApplied * 100).toFixed(2)}% minimum for this subscriber tier)`,
         );
+        continue;
+      }
+      if (possibleFakeEngagement) {
+        logDetail(`${label} — SKIPPED (possible fake/bought engagement — comment rate far below what real engagement of this size implies)`);
         continue;
       }
 
@@ -310,6 +438,9 @@ export const findInfluencersTool = createTool({
       logDetail(
         `${label} — TARGETED (${(engagementRate * 100).toFixed(2)}% engagement, ~${avgViews.toLocaleString()} avg views, latest: "${recentVideoTopic}")`,
       );
+      logDetail(
+        `  posting: ${postingConsistency}${daysSinceLastUpload !== null ? ` (last upload ${daysSinceLastUpload}d ago)` : ""}`,
+      );
       for (const [i, v] of recentVideos.entries()) {
         logDetail(
           `    video ${i + 1}/${recentVideos.length}: ${v.views.toLocaleString()} views, ${v.likes.toLocaleString()} likes — "${v.title}"`,
@@ -322,6 +453,11 @@ export const findInfluencersTool = createTool({
         logDetail(`  contact: no email found, but linked — ${contactHints.links.join(", ")}`);
       } else {
         logDetail(`  contact: nothing found in public descriptions — needs manual lookup`);
+      }
+
+      const sponsorBrandsMentioned = findSponsorBrandMentions(videoDescriptions);
+      if (sponsorBrandsMentioned.length > 0) {
+        logDetail(`  sponsors mentioned in recent videos: ${sponsorBrandsMentioned.join(", ")}`);
       }
 
       const contactHistory = getContactHistory(channel.id);
@@ -345,7 +481,24 @@ export const findInfluencersTool = createTool({
         recentVideos,
         alreadyContacted: contactHistory.contacted,
         lastContactedAt: contactHistory.lastContactedAt,
+        postingConsistency,
+        daysSinceLastUpload,
+        possibleFakeEngagement,
+        engagementThresholdApplied,
+        sponsorBrandsMentioned,
+        suggestedBrandsToOffer: [] as string[], // filled below, once every candidate's mentions are known
       });
+    }
+
+    // Course technique: name 1-2 brands in the niche this specific creator
+    // hasn't worked with yet, pulled from what OTHER candidates in the same
+    // niche pool have mentioned as sponsors — a real, non-fabricated offer
+    // instead of a vague "perfect fit" claim.
+    const nicheBrandPool = new Set<string>();
+    for (const r of results) for (const brand of r.sponsorBrandsMentioned) nicheBrandPool.add(brand);
+    for (const r of results) {
+      const own = new Set(r.sponsorBrandsMentioned);
+      r.suggestedBrandsToOffer = [...nicheBrandPool].filter((b) => !own.has(b)).slice(0, 2);
     }
 
     logDetail(`final target list: ${results.length} channel(s)`);
