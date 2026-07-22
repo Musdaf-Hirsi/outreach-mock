@@ -54,6 +54,14 @@ export interface NegotiationState {
   lastCounterOffered?: number; // the agency's most recent counter
   dealStatus: DealStatus;
   timelineSetAt?: string; // ISO — course rule: after provisional close, set and honor a specific next-steps timeline
+  checkInsSent: number; // how many post-close check-ins have gone out since timelineSetAt
+  lastCheckInAt?: string; // ISO
+  // Course's tracking-sheet discipline: a running qualitative rating per
+  // creator (1-5) so quality signal isn't lost across a growing list —
+  // independent of deal status, since a low-quality creator can still
+  // technically close.
+  rating?: number;
+  ratingNote?: string;
   updatedAt: string; // ISO
 }
 
@@ -83,6 +91,7 @@ export function getNegotiationState(channelId: string, channelName?: string): Ne
       channelName: channelName ?? channelId,
       negotiationRound: 0,
       dealStatus: "cold",
+      checkInsSent: 0,
       updatedAt: new Date().toISOString(),
     }
   );
@@ -120,12 +129,79 @@ export function recordNegotiationRound(
   },
 ): NegotiationState {
   const current = getNegotiationState(channelId, update.channelName);
+  const dealStatus = update.dealStatus ?? (current.dealStatus === "cold" ? "negotiating" : current.dealStatus);
+
+  // Course rule: once provisionally closed, set and honor a specific
+  // next-steps timeline rather than going silent — start that clock the
+  // moment the deal first flips to "closed," not on every subsequent update.
+  const timelineSetAt = dealStatus === "closed" && !current.timelineSetAt ? new Date().toISOString() : current.timelineSetAt;
+
   return updateNegotiationState(channelId, {
     channelName: update.channelName ?? current.channelName,
     negotiationRound: current.negotiationRound + 1,
     lastQuotedPrice: update.quotedPrice ?? current.lastQuotedPrice,
     lastCounterOffered: update.counterOffered ?? current.lastCounterOffered,
-    dealStatus: update.dealStatus ?? (current.dealStatus === "cold" ? "negotiating" : current.dealStatus),
+    dealStatus,
+    timelineSetAt,
+  });
+}
+
+// Course's tracking-sheet discipline: a running qualitative rating per
+// creator so quality signal survives a growing list. Independent of deal
+// status — a creator can be rated at any point, not just at close.
+export function setCreatorRating(channelId: string, rating: number, note?: string, channelName?: string): NegotiationState {
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    throw new Error(`Rating must be an integer 1-5, got ${rating}`);
+  }
+  return updateNegotiationState(channelId, { channelName, rating, ratingNote: note });
+}
+
+// Course rule: after a creator is provisionally closed, proactively check
+// in on a regular cadence (roughly weekly, within the course's 1-3 week
+// normal outreach-to-brand-match window) rather than going silent — even
+// with no news, an explicit check-in is tolerated far better than silence.
+const CHECK_IN_INTERVAL_DAYS = 7;
+
+export interface CheckInCandidate {
+  channelId: string;
+  channelName: string;
+  dealStatus: DealStatus;
+  timelineSetAt: string;
+  checkInsSent: number;
+  nextCheckInDate: string;
+  due: boolean;
+}
+
+export function getCheckInsDue(now: Date = new Date()): CheckInCandidate[] {
+  const store = loadNegotiationStore();
+  const candidates: CheckInCandidate[] = [];
+
+  for (const state of Object.values(store.channels)) {
+    if (state.dealStatus !== "closed" || !state.timelineSetAt) continue;
+
+    const base = state.lastCheckInAt ? new Date(state.lastCheckInAt) : new Date(state.timelineSetAt);
+    const nextCheckInDate = new Date(base.getTime() + CHECK_IN_INTERVAL_DAYS * 24 * 60 * 60 * 1000);
+
+    candidates.push({
+      channelId: state.channelId,
+      channelName: state.channelName,
+      dealStatus: state.dealStatus,
+      timelineSetAt: state.timelineSetAt,
+      checkInsSent: state.checkInsSent,
+      nextCheckInDate: nextCheckInDate.toISOString(),
+      due: now.getTime() >= nextCheckInDate.getTime(),
+    });
+  }
+
+  return candidates;
+}
+
+// Call once a post-close check-in message has actually been sent.
+export function recordCheckIn(channelId: string): NegotiationState {
+  const current = getNegotiationState(channelId);
+  return updateNegotiationState(channelId, {
+    checkInsSent: current.checkInsSent + 1,
+    lastCheckInAt: new Date().toISOString(),
   });
 }
 

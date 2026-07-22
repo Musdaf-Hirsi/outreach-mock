@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { getMilestoneStatus, getFollowUpQueue } from "./tracking/outreach-log";
+import { getMilestoneStatus, getFollowUpQueue, getCheckInsDue } from "./tracking/outreach-log";
 
 function main() {
   const status = getMilestoneStatus();
@@ -26,7 +26,18 @@ function main() {
   if (needsNewThread > 0) {
     console.log(`Threads needing a fresh angle (7 unanswered follow-ups): ${needsNewThread}`);
   }
-  console.log(`Run "npm run followups" to work through the due queue.\n`);
+  console.log(`Run "npm run followups" to work through the due queue.`);
+
+  const checkIns = getCheckInsDue();
+  const checkInsDue = checkIns.filter((c) => c.due);
+  if (checkInsDue.length > 0) {
+    console.log(`\nPost-close check-ins due: ${checkInsDue.length}`);
+    for (const c of checkInsDue) {
+      console.log(`  - ${c.channelName} — closed ${c.timelineSetAt.slice(0, 10)}, ${c.checkInsSent} check-in(s) sent so far`);
+    }
+    console.log(`(Course rule: check in on a closed deal even with no news — don't go silent.)`);
+  }
+  console.log("");
 }
 
 main();

@@ -12,6 +12,7 @@
     "followups": "tsx src/run-followups.ts",
     "negotiate": "tsx src/run-negotiate.ts",
     "mark-replied": "tsx src/mark-replied.ts",
+    "rate-creator": "tsx src/rate-creator.ts",
     "gmail-auth": "tsx src/gmail/get-token.ts",
     "typecheck": "tsc --noEmit"
   },
