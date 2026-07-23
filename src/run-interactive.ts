@@ -56,7 +56,7 @@ function parseDraft(text: string): { subject: string; body: string } {
 }
 
 async function main() {
-  const niche = process.argv[2] ?? "food";
+  const niche = process.argv[2] ?? "reverse type 2 diabetes";
   const rl = readline.createInterface({ input: stdin, output: stdout });
 
   initGraph();
