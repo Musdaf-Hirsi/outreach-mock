@@ -12,6 +12,16 @@ import { findFabricatedBrands } from "./utils/brand-guard";
 
 const MAX_DRAFT_ATTEMPTS = 2;
 
+// Asks a question with the current value pre-filled into the input line
+// (via the terminal's line-editing buffer) so the human can trim/insert
+// text instead of retyping the whole subject/body from scratch just to
+// change one word or remove one phrase.
+async function questionWithDefault(rl: readline.Interface, prompt: string, defaultValue: string): Promise<string> {
+  const answerPromise = rl.question(prompt);
+  if (defaultValue) rl.write(defaultValue);
+  return answerPromise;
+}
+
 // Course qualification dimension: for English-language campaigns, look for
 // at least one high-purchasing-power country in a creator's top 3 audience
 // countries. This can't be pulled from the YouTube API — it only exists if
@@ -211,10 +221,10 @@ async function main() {
       continue;
     }
     if (editChoice.trim().toLowerCase() === "y") {
-      const newSubject = (await rl.question(`New subject (blank to keep current): `)).trim();
+      const newSubject = (await questionWithDefault(rl, `New subject (edit as needed, enter to confirm): `, subject)).trim();
       if (newSubject) subject = sanitizeHumanText(newSubject);
 
-      const newBody = (await rl.question(`New body (blank to keep current): `)).trim();
+      const newBody = (await questionWithDefault(rl, `New body (edit as needed, enter to confirm): `, body)).trim();
       if (newBody) {
         body = sanitizeHumanText(newBody);
         const stillFabricated = findFabricatedBrands(body, candidate.suggestedBrandsToOffer);
