@@ -550,7 +550,7 @@ const CHAT_AGENTS: Record<string, { agent: any; label: string; note?: string }> 
   manager: {
     agent: managerAgent,
     label: "Manager (ask about progress)",
-    note: "Has live read access to your real tracking data — ask \"how are we doing\" or \"what should I do next.\" Never drafts or sends anything itself.",
+    note: "Has live read access to your real tracking data and can delegate real drafts to the follow-up/negotiation agents by creator name (\"reply to X\", \"nudge Y\") — but never sends anything itself.",
   },
   drafting: { agent: draftingAgent, label: "Drafting agent", note: "Writes first-contact outreach copy. No tools — can't send or search." },
   supervisor: { agent: supervisorAgent, label: "Supervisor agent", note: "Reviews drafts before they're allowed to send. No tools." },
