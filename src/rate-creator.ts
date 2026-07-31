@@ -15,7 +15,7 @@ const rating = Number(ratingRaw);
 const note = noteWords.join(" ") || undefined;
 
 try {
-  const state = setCreatorRating(channelId, rating, note);
+  const state = await setCreatorRating(channelId, rating, note);
   console.log(`Rated ${state.channelName} (${channelId}): ${rating}/5${note ? ` — ${note}` : ""}`);
 } catch (err) {
   console.error((err as Error).message);

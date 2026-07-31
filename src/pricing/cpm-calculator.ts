@@ -78,10 +78,14 @@ export function estimateFairPrice(
   platform: string = "youtube",
 ): { cpm: CpmRange; price: CpmRange } {
   const cpm = scaledCpmRange(niche, platform);
-  const millions = baselineViews / 1000;
+  // CPM = cost per thousand (mille) views, so this is thousands of views,
+  // not millions — despite the name this used to have. The math was always
+  // correct; the old name was actively misleading and an easy trap for a
+  // future "fix" (e.g. dividing by 1_000_000 because the name said so).
+  const thousands = baselineViews / 1000;
   return {
     cpm,
-    price: { min: Math.round(cpm.min * millions), max: Math.round(cpm.max * millions) },
+    price: { min: Math.round(cpm.min * thousands), max: Math.round(cpm.max * thousands) },
   };
 }
 
@@ -110,8 +114,8 @@ export function evaluateQuote(
     benchmarkRange = { min: Math.round(benchmarkRange.min * 0.7), max: Math.round(benchmarkRange.max * 0.7) };
   }
 
-  const millions = baselineViews / 1000;
-  const impliedCpm = millions > 0 ? quotedPrice / millions : 0;
+  const thousands = baselineViews / 1000;
+  const impliedCpm = thousands > 0 ? quotedPrice / thousands : 0;
 
   let verdict: QuoteEvaluation["verdict"];
   if (impliedCpm < benchmarkRange.min) verdict = "underpriced";

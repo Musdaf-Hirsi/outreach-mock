@@ -6,6 +6,7 @@ import { sendEmailTool } from "./mastra/tools/send-email-tool";
 import { initGraph, setNode } from "./viz/graph";
 import { sanitizeHumanText } from "./utils/sanitize-text";
 import { findFabricatedBrands } from "./utils/brand-guard";
+import { runTool } from "./utils/run-tool";
 
 // Non-interactive run for a niche: discover -> draft -> supervisor review ->
 // send. This used to hand a single agent both find-influencers and
@@ -20,6 +21,14 @@ import { findFabricatedBrands } from "./utils/brand-guard";
 // by design, so sending to it wastes an API call and clutters the log with
 // a send that reached nobody. Use run-interactive.ts to supply a real email
 // by hand for those.
+//
+// Defaults to a dry run: discovers, drafts, and gets supervisor approval,
+// but stops short of actually calling send-email — this is still an LLM
+// drafting an email and another LLM approving it, with zero human in the
+// loop, and the blast radius of a bad send is a real message landing in a
+// real creator's inbox from a real (non-warmed-up) Gmail account. Pass
+// --send to actually send approved drafts; without it, this only shows you
+// what would have gone out.
 
 const MAX_DRAFT_ATTEMPTS = 2;
 
@@ -39,7 +48,13 @@ function parseDraft(text: string): { subject: string; body: string } {
 }
 
 async function main() {
-  const niche = process.argv[2] ?? "reverse type 2 diabetes";
+  const args = process.argv.slice(2);
+  const liveSend = args.includes("--send");
+  const niche = args.find((a) => !a.startsWith("--")) ?? "reverse type 2 diabetes";
+
+  if (!liveSend) {
+    console.log("Dry run (no --send flag) — will discover, draft, and get supervisor approval, but will NOT send any email.\n");
+  }
 
   initGraph();
   setNode("trigger", "done", `niche: "${niche}"`);
@@ -51,16 +66,14 @@ async function main() {
   // The floor is real and matches the course exactly; there's no course-
   // given ceiling since bigger creators are explicitly fine too, so the max
   // here is generous rather than the original arbitrary 1M cap.
-  const findResult = await (findInfluencersTool.execute as any)({
-    context: {
-      niche,
-      minSubscribers: 50_000,
-      maxSubscribers: 5_000_000,
-      minEngagementRate: 0.01,
-      minAvgViews: 50_000,
-      maxCandidates: 50,
-      videosPerChannel: 10,
-    },
+  const findResult = await runTool(findInfluencersTool, {
+    niche,
+    minSubscribers: 50_000,
+    maxSubscribers: 5_000_000,
+    minEngagementRate: 0.01,
+    minAvgViews: 50_000,
+    maxCandidates: 50,
+    videosPerChannel: 10,
   });
 
   setNode("agent", "done", `${findResult.results.length} candidate(s) found`);
@@ -156,9 +169,13 @@ async function main() {
       continue;
     }
 
-    const sendResult = await (sendEmailTool.execute as any)({
-      context: { to, subject, body, channelName: candidate.channelName, niche, kind: "initial" },
-    });
+    if (!liveSend) {
+      console.log(`[dry run] Would send to ${to} (${candidate.channelName}):\n  Subject: ${subject}\n  Body: ${body}\n`);
+      sentCount++;
+      continue;
+    }
+
+    const sendResult = await runTool(sendEmailTool, { to, subject, body, channelName: candidate.channelName, niche, kind: "initial" });
 
     if (sendResult.status === "sent") {
       console.log(`Sent to ${to} (${candidate.channelName}).`);
@@ -172,9 +189,12 @@ async function main() {
   setNode("done", "done", `${sentCount} sent, ${skippedCount} skipped, ${needsManualLookupCount} need manual lookup`);
 
   console.log("\n=== Summary ===");
-  console.log(`Sent: ${sentCount}`);
+  console.log(`${liveSend ? "Sent" : "Would have sent (dry run)"}: ${sentCount}`);
   console.log(`Skipped: ${skippedCount}`);
   console.log(`Needs manual email lookup: ${needsManualLookupCount}`);
+  if (!liveSend) {
+    console.log(`\nRe-run with --send to actually send these: npm run dev -- "${niche}" --send`);
+  }
 }
 
 main().catch((err) => {

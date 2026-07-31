@@ -31,6 +31,9 @@ export const sendEmailTool = createTool({
     body: z.string(),
     channelName: z.string().optional().describe("The influencer/channel name this email is for, for progress tracking"),
     niche: z.string().optional().describe("The niche this outreach belongs to, for progress tracking"),
+    platform: z.enum(["youtube", "tiktok", "instagram", "other"]).optional().describe(
+      "Which platform this creator is from, for tracking. Omit for YouTube (the default discovery source).",
+    ),
     kind: z.enum(["initial", "followup"]).default("initial"),
     gmailThreadId: z.string().optional().describe("Existing Gmail thread ID to reply within, for follow-ups"),
     inReplyToRfcMessageId: z
@@ -46,7 +49,7 @@ export const sendEmailTool = createTool({
     rfcMessageId: z.string().optional(),
   }),
   execute: async ({ context }) => {
-    const { to, subject, body, channelName, niche, kind, gmailThreadId, inReplyToRfcMessageId } = context;
+    const { to, subject, body, channelName, niche, platform, kind, gmailThreadId, inReplyToRfcMessageId } = context;
 
     const channelIdMatch = to.match(/^outreach-placeholder\+([^@]+)@/);
     const channelId = channelIdMatch?.[1] ?? to;
@@ -68,7 +71,7 @@ export const sendEmailTool = createTool({
     // loop over many candidates doesn't fire a burst of identical-shaped
     // emails back-to-back — the same protection youtube-quota.ts already
     // gives the discovery side, now on the sending side too.
-    consumeSendQuota();
+    await consumeSendQuota();
     await sleep(getSendDelayMs());
 
     const auth = await getAuthorizedGmailClient();
@@ -91,10 +94,14 @@ export const sendEmailTool = createTool({
     // Fetch the RFC822 Message-Id header back out so a future follow-up can
     // set In-Reply-To/References correctly (Gmail generates this header
     // itself; it isn't something we can predict before sending).
-    // Best-effort only — the authorized token has gmail.send scope but not
-    // gmail.readonly/metadata, so this 403s today. Threaded follow-ups just
-    // fall back to a plain (non-threaded) reply subject when it's missing;
-    // it does not affect whether the send itself succeeds.
+    // Best-effort only — this used to always 403 on a gmail.send-only token
+    // (no read scope at all). Now that auth.ts also requests gmail.readonly
+    // (added for auto-reply-detection in gmail/check-replies.ts), this
+    // succeeds as long as gmail-token.json was generated after that scope
+    // was added — re-run `npm run gmail-auth` once if it's still 403ing.
+    // Threaded follow-ups fall back to a plain (non-threaded) reply subject
+    // when this is missing either way; it does not affect whether the send
+    // itself succeeds.
     let rfcMessageId: string | undefined;
     if (sentMessageId) {
       try {
@@ -110,11 +117,12 @@ export const sendEmailTool = createTool({
       }
     }
 
-    recordOutreach({
+    await recordOutreach({
       channelId,
       channelName: channelName ?? to,
       to,
       niche: niche ?? "unknown",
+      platform,
       kind,
       gmailMessageId: sentMessageId,
       gmailThreadId: sentThreadId,

@@ -12,5 +12,5 @@ if (!channelId) {
   process.exit(1);
 }
 
-markReplied(channelId);
+await markReplied(channelId);
 console.log(`Marked ${channelId} as replied — it will no longer show up in the follow-up queue.`);

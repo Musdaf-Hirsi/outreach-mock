@@ -5,16 +5,21 @@ import { followupAgent } from "./mastra/agents/followup-agent";
 import { sendEmailTool } from "./mastra/tools/send-email-tool";
 import { getFollowUpQueue } from "./tracking/outreach-log";
 import { sanitizeHumanText } from "./utils/sanitize-text";
+import { runTool } from "./utils/run-tool";
+import { checkForReplies } from "./gmail/check-replies";
 
 // Checks every outreach thread for who's due a follow-up right now (per the
 // escalating workday-aware wait in src/utils/workdays.ts) and walks through
 // them one at a time. Nothing sends without a y/n confirmation, same as
 // run-interactive.ts.
 //
-// This does NOT auto-detect replies — Gmail's send-only scope means we
-// can't read the inbox. Mark a contact as replied yourself (see
-// markReplied() in tracking/outreach-log.ts) once you see a real response,
-// so it drops out of this queue.
+// Before building the queue, this polls Gmail (via gmail/check-replies.ts,
+// using the gmail.readonly scope) for any real reply that landed since the
+// last check and auto-marks it — so a thread someone already replied to
+// never gets nudged just because you forgot to run mark-replied by hand. If
+// the readonly scope isn't authorized yet (older gmail-token.json), this
+// step logs a warning and the follow-up queue still runs off whatever was
+// already marked manually, same as before this existed.
 
 function parseDraft(text: string): { body: string } {
   const bodyMatch = text.match(/BODY:\s*([\s\S]+)/);
@@ -23,6 +28,23 @@ function parseDraft(text: string): { body: string } {
 
 async function main() {
   const rl = readline.createInterface({ input: stdin, output: stdout });
+
+  try {
+    const replies = await checkForReplies();
+    if (replies.length > 0) {
+      console.log(`\n=== Auto-detected ${replies.length} new repl${replies.length === 1 ? "y" : "ies"} ===`);
+      for (const reply of replies) {
+        console.log(`  - ${reply.channelName} (${reply.from}): "${reply.snippet}"`);
+      }
+      console.log("");
+    }
+  } catch (err) {
+    console.log(
+      `\n(Could not check for replies automatically: ${(err as Error).message}\n` +
+        `If this is a scope error, re-run "npm run gmail-auth" to reauthorize with read access. Continuing with the existing follow-up state.)\n`,
+    );
+  }
+
   const queue = getFollowUpQueue();
 
   const due = queue.filter((c) => c.due);
@@ -85,17 +107,15 @@ async function main() {
       continue;
     }
 
-    await (sendEmailTool.execute as any)({
-      context: {
-        to: candidate.to,
-        subject: `Re: ${candidate.lastSubjectContext}`,
-        body,
-        channelName: candidate.channelName,
-        niche: candidate.niche,
-        kind: "followup",
-        gmailThreadId: candidate.gmailThreadId,
-        inReplyToRfcMessageId: candidate.rfcMessageId,
-      },
+    await runTool(sendEmailTool, {
+      to: candidate.to,
+      subject: `Re: ${candidate.lastSubjectContext}`,
+      body,
+      channelName: candidate.channelName,
+      niche: candidate.niche,
+      kind: "followup",
+      gmailThreadId: candidate.gmailThreadId,
+      inReplyToRfcMessageId: candidate.rfcMessageId,
     });
 
     console.log(`Sent.`);

@@ -11,6 +11,7 @@ import {
 } from "./tracking/outreach-log";
 import { computeBaselineViews, evaluateQuote, estimateFairPrice } from "./pricing/cpm-calculator";
 import { sanitizeHumanText } from "./utils/sanitize-text";
+import { runTool } from "./utils/run-tool";
 
 // Interactive negotiation-reply flow: paste in what a creator actually
 // replied with, get a CPM-grounded draft reply reviewed by the supervisor,
@@ -137,21 +138,19 @@ async function main() {
 
   const dealStatus = action === "accept" ? "closed" : action === "walk_away" ? "declined" : "negotiating";
 
-  const sendResult = await (sendEmailTool.execute as any)({
-    context: {
-      to,
-      subject: `Re: ${channelName}`,
-      body,
-      channelName,
-      niche,
-      kind: "followup", // reuses the threaded-reply path; not subject to the initial-send dedup guard
-      gmailThreadId: lastSend?.gmailThreadId,
-      inReplyToRfcMessageId: lastSend?.rfcMessageId,
-    },
+  const sendResult = await runTool(sendEmailTool, {
+    to,
+    subject: `Re: ${channelName}`,
+    body,
+    channelName,
+    niche,
+    kind: "followup", // reuses the threaded-reply path; not subject to the initial-send dedup guard
+    gmailThreadId: lastSend?.gmailThreadId,
+    inReplyToRfcMessageId: lastSend?.rfcMessageId,
   });
 
   if (sendResult.status === "sent") {
-    recordNegotiationRound(channelId, { channelName, quotedPrice, dealStatus });
+    await recordNegotiationRound(channelId, { channelName, quotedPrice, dealStatus });
     console.log(`Sent. Negotiation round ${round}, deal status: ${dealStatus}.`);
   } else {
     console.log("Send was skipped by the tool (unexpected for a negotiation reply — check channelId).");

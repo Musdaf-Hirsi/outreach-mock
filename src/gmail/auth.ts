@@ -2,7 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { google } from "googleapis";
 
-const SCOPES = ["https://www.googleapis.com/auth/gmail.send"];
+// gmail.readonly (rather than the narrower gmail.metadata) is needed so
+// auto-reply-detection can read a thread's actual message bodies/headers to
+// tell a real reply apart from our own sent messages — metadata-only scope
+// wouldn't be enough to reliably identify the sender on older messages
+// missing a clean From header cache. Adding this scope means an existing
+// gmail-token.json (authorized under the old send-only scope) stops being
+// sufficient — re-run `npm run gmail-auth` once to get a token that covers
+// both scopes.
+const SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"];
 const TOKEN_PATH = path.resolve("gmail-token.json");
 
 function getOAuthClient() {

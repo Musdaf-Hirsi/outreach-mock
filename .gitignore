@@ -6,4 +6,8 @@ youtube-quota.json
 gmail-send-quota.json
 outreach-log.json
 negotiation-state.json
+*.json.lock
 .mastra/
+*.swp
+outreach-log.backup-*.json
+INFLUENCERS.md

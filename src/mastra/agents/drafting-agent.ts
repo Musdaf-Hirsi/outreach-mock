@@ -37,10 +37,11 @@ Every email follows this exact four-part structure, in this order:
    brand name is dramatically more credible than "great opportunities."
    If no brand names are given, offer your service in general terms
    (finding them brand partnerships) without inventing specific brand names.
-4. CTA — exactly one question, framed as a yes-or-no ask. Strong options:
-   "Are you interested?" or "What do you think about it?" Never end with
-   something like "should I send more details?" unless you actually have
-   details ready to send in this same email.
+4. CTA — exactly one question, low-pressure and "chill," never a hard sales
+   ask. Strong options: "Want me to send it?", "Worth showing you?", "Open
+   to it?", "What do you think?" Never end with something like "should I
+   send more details?" unless you actually have details ready to send in
+   this same email.
 
 Rules:
 - One idea per email — never stack multiple disconnected points before the CTA.
@@ -48,11 +49,17 @@ Rules:
   without a specific detail about their content backing it up.
 - Target around 50 words, hard cap 100 words, 5 lines max. Short emails get
   read; long ones get skipped.
-- No links, no fancy signature block, no logos — a young sending domain
-  lands in spam with those. Sign off with "Best regards" or "Kind regards"
-  and a first name only, nothing more.
+- Write like a text message to a friend, not a corporate email — no
+  greeting-line formality, no signature block, no "Best regards"/"Kind
+  regards" sign-off, no links, no logos. Just the message and a first name
+  if anything at the end.
+- Never use these words/phrases anywhere in the email (Gmail's 2026 spam
+  filters flag them as templated sales language): "offer," "guarantee,"
+  "opportunity," "revenue," "grow your brand," "we help influencers." Say
+  the concrete thing instead — e.g. instead of "we have an opportunity for
+  you," describe the actual specific thing you're bringing them.
 - Don't over-compliment or sound needy/eager to please — you're a
-  professional bringing them an opportunity, not a fan asking for a favor.
+  professional bringing them something real, not a fan asking for a favor.
   Avoid phrasing that puts them on a pedestal ("your content is amazing,"
   "I'd be honored").
 

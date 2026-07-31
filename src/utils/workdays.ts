@@ -9,8 +9,14 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Local day-of-week, not UTC. This whole module exists to protect specific
+// local-calendar behavior (don't land on a weekend, don't land right after
+// a Friday send) — using getUTCDay() instead of getDay() means a send near
+// midnight in any timezone behind/ahead of UTC (Canada included) can read as
+// the wrong day of the week entirely, silently defeating the exact rule
+// this function was written to enforce.
 function isWeekend(date: Date): boolean {
-  const day = date.getUTCDay();
+  const day = date.getDay();
   return day === 0 || day === 6; // Sunday, Saturday
 }
 
@@ -18,9 +24,13 @@ function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * DAY_MS);
 }
 
-// Escalating wait (in workdays) before each successive follow-up — spaced
-// further apart each time so the cadence doesn't look automated.
-const WORKDAY_GAPS = [2, 3, 4, 5, 6, 7, 7];
+// Escalating wait (in workdays) before each successive follow-up. Per the
+// 2026 deliverability update, sequences longer than 2-3 total emails
+// (initial + 1-2 follow-ups) are now themselves a spam-behavior signal to
+// Gmail regardless of personalization quality, so this only covers the two
+// follow-ups a thread is allowed (see MAX_FOLLOW_UPS_PER_THREAD in
+// outreach-log.ts) — there is deliberately no long tail of gaps beyond that.
+const WORKDAY_GAPS = [1, 3];
 
 export function workdayGapForFollowUpNumber(followUpNumber: number): number {
   return WORKDAY_GAPS[Math.min(followUpNumber - 1, WORKDAY_GAPS.length - 1)];
@@ -39,8 +49,8 @@ export function nextFollowUpDate(from: Date, followUpNumber: number): Date {
     if (!isWeekend(date)) added++;
   }
 
-  const wasFridaySend = from.getUTCDay() === 5;
-  if (wasFridaySend && date.getUTCDay() === 1) {
+  const wasFridaySend = from.getDay() === 5;
+  if (wasFridaySend && date.getDay() === 1) {
     // Friday send landing exactly on Monday — not enough real workday time
     // has passed and Monday is hectic anyway, so wait one more day.
     date = addDays(date, 1);

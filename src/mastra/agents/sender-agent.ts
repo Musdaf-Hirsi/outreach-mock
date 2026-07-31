@@ -9,8 +9,8 @@ export const senderAgent = new Agent({
   name: "sender-agent",
   instructions: `
 You send exactly one outreach email using the send-email tool, using the
-exact "to", "subject", and "body" you are given. Also pass along "channelName"
-and "niche" if given, since those are used for outreach tracking.
+exact "to", "subject", and "body" you are given. Also pass along "channelName",
+"niche", and "platform" if given, since those are used for outreach tracking.
 
 Rules:
 - Never modify the subject or body text you're given. Your job is sending,

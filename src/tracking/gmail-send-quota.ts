@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { withFileLock } from "../utils/file-lock";
 
 // Cold outreach from a personal (non-warmed-up) Gmail account is exactly
 // what the course's own "Warming Up Your Emails" lesson warns against doing
@@ -10,7 +11,15 @@ import path from "node:path";
 // this file existed.
 
 const QUOTA_FILE = path.resolve("gmail-send-quota.json");
-const DAILY_SEND_LIMIT = Number(process.env.GMAIL_DAILY_SEND_LIMIT ?? 40);
+
+// 2026 deliverability update, Section 6: "NEVER exceed 150/day per mailbox
+// ... Google tracks volume and patterns." This is a hard code-level ceiling
+// independent of GMAIL_DAILY_SEND_LIMIT below — a wrong/stale number in
+// .env should never be able to push real sends past what the course itself
+// calls the absolute max, regardless of what stage of warm-up you're in.
+const ABSOLUTE_DAILY_CEILING = 150;
+
+const DAILY_SEND_LIMIT = Math.min(Number(process.env.GMAIL_DAILY_SEND_LIMIT ?? 40), ABSOLUTE_DAILY_CEILING);
 const SEND_DELAY_MS = Number(process.env.GMAIL_SEND_DELAY_MS ?? 8000);
 
 interface SendQuotaState {
@@ -36,18 +45,24 @@ function saveState(state: SendQuotaState) {
 
 // Throws if today's send cap is already hit, so a runaway loop can't blast
 // out an unbounded burst of real cold emails in one go.
-export function consumeSendQuota(): void {
-  const state = loadState();
-  if (state.sentToday >= DAILY_SEND_LIMIT) {
-    throw new Error(
-      `Gmail daily send quota guard tripped: ${state.sentToday}/${DAILY_SEND_LIMIT} real sends used today. ` +
-        `Stopping to protect the account from spam-flagging — try again tomorrow, or raise ` +
-        `GMAIL_DAILY_SEND_LIMIT in .env if you're deliberately scaling up (e.g. after warming up a ` +
-        `dedicated sending domain).`,
-    );
-  }
-  state.sentToday += 1;
-  saveState(state);
+export async function consumeSendQuota(): Promise<void> {
+  // Same lock-around-the-whole-check pattern as youtube-quota.ts — the CLI
+  // and the web dashboard can both be sending at once, and without a lock
+  // spanning load+check+save, two concurrent sends can both read the same
+  // sentToday and both slip through even when the cap is already hit.
+  await withFileLock(QUOTA_FILE, () => {
+    const state = loadState();
+    if (state.sentToday >= DAILY_SEND_LIMIT) {
+      throw new Error(
+        `Gmail daily send quota guard tripped: ${state.sentToday}/${DAILY_SEND_LIMIT} real sends used today. ` +
+          `Stopping to protect the account from spam-flagging — try again tomorrow, or raise ` +
+          `GMAIL_DAILY_SEND_LIMIT in .env if you're deliberately scaling up (e.g. after warming up a ` +
+          `dedicated sending domain).`,
+      );
+    }
+    state.sentToday += 1;
+    saveState(state);
+  });
 }
 
 export function sleep(ms: number): Promise<void> {

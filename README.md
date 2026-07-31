@@ -36,6 +36,10 @@ niche → find-influencers (YouTube API) → draft (DeepSeek) → supervisor rev
   from a light nudge to a heavier one after several unanswered follow-ups,
   and flags threads that need a fresh angle after 7 follow-ups with no
   reply — instead of sending an 8th message into the void.
+- **Reply detection** — polls Gmail (read-only) for a real reply on every
+  open thread and auto-marks it, so a creator who already responded never
+  gets an unnecessary follow-up nudge. Runs automatically before building
+  the follow-up queue, or on its own via `npm run check-replies`.
 - **Tracking** — every send is logged to `outreach-log.json` and measured
   against configurable milestone targets, so progress is a real number, not
   a guess.
@@ -67,10 +71,12 @@ This opens a browser consent flow and saves a refresh token to
 ## Usage
 
 ```bash
-npm run dev -- "personal finance"      # one-shot autonomous run for a niche
+npm run dev -- "personal finance"      # dry run: discover, draft, get supervisor approval, print (no sends)
+npm run dev -- "personal finance" --send # same, but actually sends approved drafts
 npm run interactive -- "fitness"       # step through each candidate, confirm before sending
 npm run followups                      # work through the due follow-up queue
-npm run mark-replied -- <channelId>    # stop follow-ups once someone actually responds
+npm run check-replies                  # poll Gmail and auto-mark any real replies (also runs inside followups)
+npm run mark-replied -- <channelId>    # manually stop follow-ups (fallback if auto-detection missed one)
 npm run report                         # milestone progress + follow-ups due
 npm run dashboard                      # live web dashboard at localhost:4741
 ```
@@ -87,9 +93,10 @@ src/
       send-email-tool.ts         Gmail send, dedup guard, thread-reply support
       youtube-quota.ts           daily quota tracking + request pacing
   tracking/outreach-log.ts   send history, milestone math, follow-up queue
+  gmail/check-replies.ts     polls Gmail threads, auto-marks real replies
   utils/workdays.ts          escalating workday-aware follow-up scheduling
   viz/                       terminal + web live agent-graph visualization
-  run.ts / run-interactive.ts / run-followups.ts / report.ts / mark-replied.ts
+  run.ts / run-interactive.ts / run-followups.ts / report.ts / mark-replied.ts / check-replies.ts
 ```
 
 ## Known limits
@@ -99,10 +106,13 @@ src/
   fallback so the pipeline always has a valid-shaped address to pass
   around; `run-interactive.ts` prompts for the real email by hand instead
   of silently sending to it.
-- The Gmail OAuth scope is `gmail.send`-only, so the tool can't read your
-  inbox — it can't auto-detect replies. Mark a contact as replied yourself
-  via `npm run mark-replied` once you see a real response.
-- Full in-thread follow-up replies need the `gmail.metadata` scope (to read
-  back the sent message's `Message-Id` header for `In-Reply-To`); without
-  it, follow-ups degrade to a plain (non-threaded) message rather than
-  failing.
+- Auto-reply-detection (`npm run check-replies`, or automatically before
+  `npm run followups`) requires the `gmail.readonly` scope. If your
+  `gmail-token.json` was created before this feature existed, it was
+  authorized under a `gmail.send`-only token and will fail with an
+  insufficient-scope error — re-run `npm run gmail-auth` once to reauthorize
+  with both scopes. `mark-replied` still exists as a manual fallback.
+- Detection works by checking who sent the most recent message in a thread,
+  not by parsing message content — it can't tell you *what* a creator wants,
+  just that they replied. Read the actual email yourself before deciding
+  what to do next.

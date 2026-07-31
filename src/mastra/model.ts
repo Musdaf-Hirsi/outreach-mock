@@ -9,4 +9,9 @@ const deepseek = createOpenAICompatible({
   baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
 });
 
-export const outreachModel = deepseek(process.env.DEEPSEEK_MODEL ?? "deepseek-chat");
+// "deepseek-chat" was the model name at the time this was written, but
+// DeepSeek has since retired it — current valid names are deepseek-v4-pro
+// and deepseek-v4-flash. Defaulting to the new name here so a fresh clone
+// without DEEPSEEK_MODEL set in .env doesn't hit the same "invalid_req
+// uest_error" this default used to cause.
+export const outreachModel = deepseek(process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash");

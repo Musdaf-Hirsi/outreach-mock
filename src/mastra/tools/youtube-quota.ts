@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { withFileLock } from "../../utils/file-lock";
 
 // YouTube Data API v3 has a fixed daily quota (10,000 units by default).
 // search.list costs 100 units; channels/playlistItems/videos.list cost 1 each.
@@ -30,17 +31,24 @@ function saveState(state: QuotaState) {
   fs.writeFileSync(QUOTA_FILE, JSON.stringify(state, null, 2));
 }
 
-export function consumeQuota(units: number): void {
-  const state = loadState();
-  if (state.unitsUsed + units > DAILY_LIMIT) {
-    throw new Error(
-      `YouTube API daily quota guard tripped: ${state.unitsUsed}/${DAILY_LIMIT} units used, ` +
-        `this call needs ${units} more. Stopping to avoid a hard quota failure — try again tomorrow, ` +
-        `or raise YOUTUBE_DAILY_QUOTA_LIMIT in .env if you're sure you have headroom.`,
-    );
-  }
-  state.unitsUsed += units;
-  saveState(state);
+export async function consumeQuota(units: number): Promise<void> {
+  // Load, check, and save inside the same lock — otherwise two concurrent
+  // callers (e.g. the CLI and the web dashboard both making YouTube calls)
+  // can both read the same unitsUsed, both pass the check, and both save,
+  // silently losing one of the increments and letting real usage drift past
+  // DAILY_LIMIT without ever tripping the guard.
+  await withFileLock(QUOTA_FILE, () => {
+    const state = loadState();
+    if (state.unitsUsed + units > DAILY_LIMIT) {
+      throw new Error(
+        `YouTube API daily quota guard tripped: ${state.unitsUsed}/${DAILY_LIMIT} units used, ` +
+          `this call needs ${units} more. Stopping to avoid a hard quota failure — try again tomorrow, ` +
+          `or raise YOUTUBE_DAILY_QUOTA_LIMIT in .env if you're sure you have headroom.`,
+      );
+    }
+    state.unitsUsed += units;
+    saveState(state);
+  });
 }
 
 export function sleep(ms: number): Promise<void> {

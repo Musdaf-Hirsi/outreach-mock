@@ -96,7 +96,7 @@ async function youtubeGet<T>(path: string, params: Record<string, string>): Prom
 
   // Guard the daily quota before spending it, and space out requests so we
   // don't fire a burst of calls back-to-back.
-  consumeQuota(ENDPOINT_COST[path] ?? 1);
+  await consumeQuota(ENDPOINT_COST[path] ?? 1);
   await sleep(REQUEST_DELAY_MS);
 
   const url = new URL(`${YOUTUBE_API_BASE}/${path}`);

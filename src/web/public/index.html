@@ -81,13 +81,58 @@
   .draft-box { margin-top: 0.8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 1rem; }
   .draft-subject { font-weight: 600; margin-bottom: 0.4rem; }
   .draft-body { white-space: pre-wrap; font-size: 0.9rem; color: var(--text-dim); margin-bottom: 0.7rem; }
+  .draft-subject[contenteditable="true"], .draft-body[contenteditable="true"] {
+    outline: 1px dashed var(--accent); border-radius: 4px; padding: 0.2rem 0.4rem; color: var(--text);
+  }
   .actions { display: flex; gap: 0.5rem; }
+  .remove-btn { background: var(--danger); }
 
   .status-msg { font-size: 0.85rem; margin-top: 0.5rem; }
   .status-msg.ok { color: var(--accent); }
   .status-msg.err { color: var(--danger); }
 
   .empty { color: var(--text-dim); font-size: 0.9rem; }
+
+  .tabs { display: flex; gap: 0.4rem; margin-bottom: 1.2rem; border-bottom: 1px solid var(--border); }
+  .tab-btn {
+    background: none; border: none; color: var(--text-dim); font-weight: 600; font-size: 0.9rem;
+    padding: 0.6rem 0.2rem; border-radius: 0; cursor: pointer; border-bottom: 2px solid transparent;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 0.6rem; }
+  .form-grid .full { grid-column: 1 / -1; }
+  .form-grid label { display: block; font-size: 0.78rem; color: var(--text-dim); margin-bottom: 0.25rem; }
+  select, textarea {
+    width: 100%; padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font-size: 0.95rem; font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 3.2rem; }
+
+  table.influencers { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  table.influencers th, table.influencers td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); }
+  table.influencers th { color: var(--text-dim); font-weight: 600; font-size: 0.78rem; }
+  table.influencers select, table.influencers input { width: auto; padding: 0.3rem 0.4rem; font-size: 0.8rem; }
+  .row-actions { display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
+
+  .reply-card { background: var(--warm-soft); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 1rem; margin-bottom: 0.7rem; }
+  .reply-snippet { font-size: 0.85rem; color: var(--text-dim); margin: 0.3rem 0 0.6rem; font-style: italic; }
+  .reply-form { display: none; margin-top: 0.6rem; }
+  .reply-form.open { display: block; }
+
+  .followup-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 1rem; margin-bottom: 0.7rem; }
+
+  pre.report-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 1rem; font-size: 0.85rem; white-space: pre-wrap; }
+
+  .chat-log { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 0.8rem; max-height: 55vh; overflow-y: auto; }
+  .chat-msg { max-width: 80%; padding: 0.6rem 0.9rem; border-radius: 10px; font-size: 0.88rem; white-space: pre-wrap; }
+  .chat-msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
+  .chat-msg.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); }
+  .chat-input-row { display: flex; gap: 0.5rem; }
+  .chat-input-row textarea { flex: 1; min-height: 2.6rem; }
+  .chat-note { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.8rem; }
 </style>
 </head>
 <body>
@@ -97,17 +142,115 @@
 
   <div class="progress" id="progress">Loading progress…</div>
 
-  <div class="search-row">
-    <input type="text" id="niche" placeholder='Niche, e.g. "fitness and gym"' />
-    <button id="searchBtn">Search</button>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="youtube">Find on YouTube</button>
+    <button class="tab-btn" data-tab="manual">Add manually (TikTok/Instagram)</button>
+    <button class="tab-btn" data-tab="influencers">Influencers</button>
+    <button class="tab-btn" data-tab="followups">Follow-ups</button>
+    <button class="tab-btn" data-tab="chat">Chat with agent</button>
   </div>
 
-  <div id="savedSection" style="display:none">
-    <h2 class="section-title">Saved for later</h2>
-    <div id="savedList"></div>
+  <div id="tab-youtube" class="tab-panel active">
+    <div class="search-row">
+      <input type="text" id="niche" placeholder='Niche, e.g. "fitness and gym"' />
+      <button id="searchBtn">Search</button>
+    </div>
+
+    <div id="savedSection" style="display:none">
+      <h2 class="section-title">Saved for later</h2>
+      <div id="savedList"></div>
+    </div>
+
+    <div id="results"></div>
   </div>
 
-  <div id="results"></div>
+  <div id="tab-manual" class="tab-panel">
+    <div class="card">
+      <div class="form-grid">
+        <div>
+          <label for="m-platform">Platform</label>
+          <select id="m-platform">
+            <option value="tiktok">TikTok</option>
+            <option value="instagram">Instagram</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <label for="m-name">Creator name/handle</label>
+          <input type="text" id="m-name" placeholder="@handle or name" />
+        </div>
+        <div class="full">
+          <label for="m-link">Profile or video link</label>
+          <input type="text" id="m-link" placeholder="https://..." />
+        </div>
+        <div>
+          <label for="m-niche">Niche</label>
+          <input type="text" id="m-niche" placeholder='e.g. "halal fitness"' />
+        </div>
+        <div>
+          <label for="m-followers">Followers (optional)</label>
+          <input type="text" id="m-followers" placeholder="e.g. 120,000" />
+        </div>
+        <div class="full">
+          <label for="m-content">Short description of their recent content (used for personalization)</label>
+          <textarea id="m-content" placeholder="What's the video/post about?"></textarea>
+        </div>
+        <div class="full">
+          <label for="m-brands">Brands to offer, comma-separated (optional)</label>
+          <input type="text" id="m-brands" placeholder="Brand A, Brand B" />
+        </div>
+        <div class="full">
+          <label for="m-email">Real email</label>
+          <input type="email" id="m-email" placeholder="creator@example.com" />
+        </div>
+      </div>
+      <button id="m-draftBtn">Draft</button>
+      <div id="m-history" class="hints"></div>
+      <div id="m-draftContainer"></div>
+    </div>
+  </div>
+
+  <div id="tab-influencers" class="tab-panel">
+    <div class="card-actions-row">
+      <button id="inf-refreshBtn" class="secondary">Refresh</button>
+      <button id="inf-checkRepliesBtn">Check for replies</button>
+      <button id="inf-reportBtn" class="secondary">View report</button>
+      <button id="inf-mdBtn" class="secondary">Regenerate INFLUENCERS.md</button>
+      <button id="inf-dashboardBtn" class="secondary">Open live dashboard ↗</button>
+    </div>
+    <div id="inf-checkRepliesStatus" class="status-msg"></div>
+    <div id="inf-replies"></div>
+    <div id="inf-reportBox"></div>
+    <div id="inf-mdStatus" class="status-msg"></div>
+    <div id="inf-table"></div>
+  </div>
+
+  <div id="tab-followups" class="tab-panel">
+    <div class="card-actions-row">
+      <button id="fu-refreshBtn" class="secondary">Refresh</button>
+    </div>
+    <div id="fu-summary" class="hints"></div>
+    <div id="fu-list"></div>
+  </div>
+
+  <div id="tab-chat" class="tab-panel">
+    <div class="form-grid">
+      <div>
+        <label for="chat-agent">Agent</label>
+        <select id="chat-agent"></select>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button id="chat-clearBtn" class="secondary">Clear conversation</button>
+      </div>
+    </div>
+    <p class="chat-note" id="chat-note"></p>
+    <div class="chat-log" id="chat-log"></div>
+    <div class="chat-input-row">
+      <textarea id="chat-input" placeholder="Type a message…"></textarea>
+      <button id="chat-sendBtn">Send</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -152,6 +295,102 @@ async function loadProgress() {
     (p.onTrack ? "on track" : "behind pace");
 }
 loadProgress();
+
+// Shared by both the YouTube and manual-add flows. Renders a draft with
+// Edit/Send/Discard actions into `container`. Editing makes the subject/body
+// directly editable in place; sending always re-signs a fresh approval token
+// against whatever's currently in those fields right before sending (via
+// /api/approve-edit), so an edited draft sends the edited text, not the
+// original — and a not-yet-approved draft becomes sendable once the human
+// has edited it, same as the CLI's "edit to fix the issue" flow.
+function renderDraftBox(container, draft, sendInfo) {
+  container.innerHTML = `
+    <div class="draft-box">
+      ${draft.reviewNote ? `<p class="review-note">${draft.reviewNote}</p>` : ""}
+      <div class="draft-subject">${draft.subject}</div>
+      <div class="draft-body">${draft.body}</div>
+      <div class="actions">
+        <button class="secondary edit-btn">Edit</button>
+        <button class="send-btn" ${draft.approved ? "" : "disabled"}>Send to ${sendInfo.to}</button>
+        <button class="secondary discard-btn">Discard</button>
+      </div>
+      <div class="status-msg"></div>
+    </div>
+  `;
+
+  const box = container.querySelector(".draft-box");
+  const subjectEl = box.querySelector(".draft-subject");
+  const bodyEl = box.querySelector(".draft-body");
+  const editBtn = box.querySelector(".edit-btn");
+  const sendBtn = box.querySelector(".send-btn");
+  const discardBtn = box.querySelector(".discard-btn");
+  const statusMsg = box.querySelector(".status-msg");
+
+  if (!draft.approved) {
+    statusMsg.textContent = "Not approved by supervisor — edit to fix the issue, then send, or discard and re-draft.";
+    statusMsg.className = "status-msg err";
+  }
+
+  editBtn.addEventListener("click", () => {
+    subjectEl.contentEditable = "true";
+    bodyEl.contentEditable = "true";
+    subjectEl.focus();
+    sendBtn.disabled = false;
+    editBtn.disabled = true;
+    editBtn.textContent = "Editing…";
+    if (!draft.approved) {
+      statusMsg.textContent = "";
+      statusMsg.className = "status-msg";
+    }
+  });
+
+  sendBtn.addEventListener("click", async () => {
+    const subject = subjectEl.textContent.trim();
+    const body = bodyEl.textContent.trim();
+    sendBtn.disabled = true;
+    sendBtn.textContent = "Sending…";
+    try {
+      const approveRes = await fetch("/api/approve-edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: sendInfo.to, subject, body }),
+      });
+      const approval = await approveRes.json();
+      if (approval.error) throw new Error(approval.error);
+
+      const sendRes = await fetch("/api/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: sendInfo.to,
+          subject,
+          body,
+          channelName: sendInfo.channelName,
+          niche: sendInfo.niche,
+          platform: sendInfo.platform,
+          approvalToken: approval.approvalToken,
+        }),
+      });
+      const sendResult = await sendRes.json();
+      if (sendResult.error) throw new Error(sendResult.error);
+      statusMsg.textContent = "Sent!";
+      statusMsg.className = "status-msg ok";
+      sendBtn.remove();
+      discardBtn.remove();
+      editBtn.remove();
+      loadProgress();
+    } catch (err) {
+      statusMsg.textContent = "Failed: " + err.message;
+      statusMsg.className = "status-msg err";
+      sendBtn.disabled = false;
+      sendBtn.textContent = "Retry send";
+    }
+  });
+
+  discardBtn.addEventListener("click", () => {
+    container.innerHTML = "";
+  });
+}
 
 function candidateCard(c, niche) {
   const div = document.createElement("div");
@@ -232,55 +471,11 @@ function candidateCard(c, niche) {
         const draft = await res.json();
         if (draft.error) throw new Error(draft.error);
 
-        draftContainer.innerHTML = `
-          <div class="draft-box">
-            ${draft.reviewNote ? `<p class="review-note">${draft.reviewNote}</p>` : ""}
-            <div class="draft-subject">${draft.subject}</div>
-            <div class="draft-body">${draft.body}</div>
-            <div class="actions">
-              <button class="send-btn">Send to ${emailInput.value.trim()}</button>
-              <button class="secondary discard-btn">Discard</button>
-            </div>
-            <div class="status-msg"></div>
-          </div>
-        `;
-
-        const sendBtn = draftContainer.querySelector(".send-btn");
-        const discardBtn = draftContainer.querySelector(".discard-btn");
-        const statusMsg = draftContainer.querySelector(".status-msg");
-
-        sendBtn.addEventListener("click", async () => {
-          sendBtn.disabled = true;
-          sendBtn.textContent = "Sending…";
-          try {
-            const sendRes = await fetch("/api/send", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                to: emailInput.value.trim(),
-                subject: draft.subject,
-                body: draft.body,
-                channelName: c.channelName,
-                niche,
-              }),
-            });
-            const sendResult = await sendRes.json();
-            if (sendResult.error) throw new Error(sendResult.error);
-            statusMsg.textContent = "Sent!";
-            statusMsg.className = "status-msg ok";
-            sendBtn.remove();
-            discardBtn.remove();
-            loadProgress();
-          } catch (err) {
-            statusMsg.textContent = "Failed: " + err.message;
-            statusMsg.className = "status-msg err";
-            sendBtn.disabled = false;
-            sendBtn.textContent = "Retry send";
-          }
-        });
-
-        discardBtn.addEventListener("click", () => {
-          draftContainer.innerHTML = "";
+        renderDraftBox(draftContainer, draft, {
+          to: emailInput.value.trim(),
+          channelName: c.channelName,
+          niche,
+          platform: "youtube",
         });
       } catch (err) {
         alert("Draft failed: " + err.message);
@@ -325,6 +520,707 @@ searchBtn.addEventListener("click", async () => {
 nicheInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") searchBtn.click();
 });
+
+// --- Tabs ---------------------------------------------------------------
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+    if (btn.dataset.tab === "influencers") loadInfluencers();
+    if (btn.dataset.tab === "followups") loadFollowups();
+  });
+});
+
+// --- Manual add (TikTok/Instagram) --------------------------------------
+const mPlatform = document.getElementById("m-platform");
+const mName = document.getElementById("m-name");
+const mLink = document.getElementById("m-link");
+const mNiche = document.getElementById("m-niche");
+const mFollowers = document.getElementById("m-followers");
+const mContent = document.getElementById("m-content");
+const mBrands = document.getElementById("m-brands");
+const mEmail = document.getElementById("m-email");
+const mDraftBtn = document.getElementById("m-draftBtn");
+const mHistory = document.getElementById("m-history");
+const mDraftContainer = document.getElementById("m-draftContainer");
+
+let lastCheckedEmail = "";
+mEmail.addEventListener("blur", async () => {
+  const email = mEmail.value.trim();
+  if (!email || email === lastCheckedEmail) return;
+  lastCheckedEmail = email;
+  try {
+    const res = await fetch(`/api/manual/contact-history?email=${encodeURIComponent(email)}`);
+    const history = await res.json();
+    mHistory.textContent = history.contacted
+      ? `Already contacted ${history.timesContacted}x, last on ${new Date(history.lastContactedAt).toLocaleDateString()} — you can still send if you mean to.`
+      : "";
+  } catch {
+    mHistory.textContent = "";
+  }
+});
+
+mDraftBtn.addEventListener("click", async () => {
+  const displayName = mName.value.trim();
+  const niche = mNiche.value.trim();
+  const email = mEmail.value.trim();
+  if (!displayName || !niche) {
+    alert("Creator name and niche are required.");
+    return;
+  }
+  if (!email) {
+    alert("Enter the real email first.");
+    return;
+  }
+
+  const link = mLink.value.trim();
+  const fullName = link ? `${displayName} (${link})` : displayName;
+  const allowedBrands = mBrands.value.trim()
+    ? mBrands.value.split(",").map((b) => b.trim()).filter(Boolean)
+    : [];
+  const platform = mPlatform.value;
+
+  mDraftBtn.disabled = true;
+  mDraftBtn.textContent = "Drafting…";
+  try {
+    const res = await fetch("/api/manual/draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        displayName: fullName,
+        niche,
+        contentDescription: mContent.value.trim(),
+        allowedBrands,
+        to: email,
+      }),
+    });
+    const draft = await res.json();
+    if (draft.error) throw new Error(draft.error);
+
+    renderDraftBox(mDraftContainer, draft, {
+      to: email,
+      channelName: fullName,
+      niche,
+      platform,
+    });
+  } catch (err) {
+    alert("Draft failed: " + err.message);
+  } finally {
+    mDraftBtn.disabled = false;
+    mDraftBtn.textContent = "Draft";
+  }
+});
+
+// --- Influencers list -----------------------------------------------------
+const infTable = document.getElementById("inf-table");
+const infRefreshBtn = document.getElementById("inf-refreshBtn");
+
+const PLATFORM_LABEL = { youtube: "YouTube", tiktok: "TikTok", instagram: "Instagram", other: "Other" };
+
+async function loadInfluencers() {
+  infTable.innerHTML = `<p class="empty">Loading…</p>`;
+  try {
+    const res = await fetch("/api/influencers");
+    const data = await res.json();
+    const creators = data.creators || [];
+    if (creators.length === 0) {
+      infTable.innerHTML = `<p class="empty">No real outreach sent yet.</p>`;
+      return;
+    }
+    infTable.innerHTML = `
+      <table class="influencers">
+        <thead>
+          <tr><th>Creator</th><th>Platform</th><th>Niche</th><th>Status</th><th>Replied</th><th>Times</th><th>Last contacted</th><th>Rate</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    `;
+    const tbody = infTable.querySelector("tbody");
+    for (const c of creators) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${c.channelName}</td>
+        <td>${PLATFORM_LABEL[c.platform] || c.platform}</td>
+        <td>${c.niche}</td>
+        <td>${c.dealStatus}</td>
+        <td>${c.replied ? "yes" : "no"}</td>
+        <td>${c.timesContacted}</td>
+        <td>${new Date(c.lastContactedAt).toLocaleDateString()}</td>
+        <td>
+          <select class="rate-select">
+            <option value="">-</option>
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+            <option value="4">4</option><option value="5">5</option>
+          </select>
+        </td>
+        <td class="row-actions">
+          <button class="secondary draft-reply-btn">Draft reply</button>
+          ${!c.replied ? `<button class="secondary mark-replied-btn">Mark replied</button>` : ""}
+          <button class="secondary remove-btn">Remove</button>
+        </td>
+      `;
+      const replyRow = document.createElement("tr");
+      const replyCell = document.createElement("td");
+      replyCell.colSpan = 9;
+      replyRow.appendChild(replyCell);
+      replyRow.style.display = "none";
+
+      // Persistent version of the reply/negotiate card (see negotiateCard's
+      // comment) — not tied to a single "Check for replies" run, so you can
+      // come back and respond to someone whenever, not just the moment a
+      // reply was first detected.
+      tr.querySelector(".draft-reply-btn").addEventListener("click", () => {
+        if (replyCell.childElementCount === 0) {
+          replyCell.appendChild(negotiateCard(c.channelId, c.channelName, "", true));
+        }
+        replyRow.style.display = replyRow.style.display === "none" ? "" : "none";
+      });
+
+      // Closes over the real channelId (rather than embedding it in HTML),
+      // so anything unusual in it — an email with a "+", etc. — can't break
+      // attribute escaping the way string-interpolating it into markup could.
+      tr.querySelector(".remove-btn").addEventListener("click", async () => {
+        if (!confirm(`Remove ${c.channelName} from the influencers list? This deletes their outreach history.`)) return;
+        try {
+          const res = await fetch(`/api/influencers/${encodeURIComponent(c.channelId)}`, { method: "DELETE" });
+          const result = await res.json();
+          if (result.error) throw new Error(result.error);
+          tr.remove();
+        } catch (err) {
+          alert("Remove failed: " + err.message);
+        }
+      });
+
+      const markRepliedBtn = tr.querySelector(".mark-replied-btn");
+      if (markRepliedBtn) {
+        markRepliedBtn.addEventListener("click", async () => {
+          try {
+            await fetch(`/api/mark-replied/${encodeURIComponent(c.channelId)}`, { method: "POST" });
+            loadInfluencers();
+          } catch (err) {
+            alert("Failed: " + err.message);
+          }
+        });
+      }
+
+      tr.querySelector(".rate-select").addEventListener("change", async (e) => {
+        const rating = e.target.value;
+        if (!rating) return;
+        const note = prompt(`Note for this ${rating}/5 rating (optional):`) || undefined;
+        try {
+          await fetch("/api/rate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channelId: c.channelId, channelName: c.channelName, rating: Number(rating), note }),
+          });
+        } catch (err) {
+          alert("Rate failed: " + err.message);
+        }
+      });
+
+      tbody.appendChild(tr);
+      tbody.appendChild(replyRow);
+    }
+  } catch (err) {
+    infTable.innerHTML = `<p class="empty">Failed to load: ${err.message}</p>`;
+  }
+}
+infRefreshBtn.addEventListener("click", loadInfluencers);
+
+const infCheckRepliesBtn = document.getElementById("inf-checkRepliesBtn");
+const infCheckRepliesStatus = document.getElementById("inf-checkRepliesStatus");
+const infRepliesEl = document.getElementById("inf-replies");
+
+infCheckRepliesBtn.addEventListener("click", async () => {
+  infCheckRepliesBtn.disabled = true;
+  infCheckRepliesBtn.textContent = "Checking…";
+  infCheckRepliesStatus.textContent = "";
+  infRepliesEl.innerHTML = "";
+  try {
+    const res = await fetch("/api/check-replies", { method: "POST" });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (data.replies.length === 0) {
+      infCheckRepliesStatus.textContent = `No new replies (checked ${data.openCount} open thread(s)).`;
+      infCheckRepliesStatus.className = "status-msg";
+    } else {
+      infCheckRepliesStatus.textContent = `${data.replies.length} new repl${data.replies.length === 1 ? "y" : "ies"} found:`;
+      infCheckRepliesStatus.className = "status-msg ok";
+      for (const reply of data.replies) {
+        infRepliesEl.appendChild(negotiateCard(reply.channelId, reply.channelName, reply.snippet, true));
+      }
+    }
+    loadInfluencers();
+  } catch (err) {
+    infCheckRepliesStatus.textContent = "Failed: " + err.message;
+    infCheckRepliesStatus.className = "status-msg err";
+  } finally {
+    infCheckRepliesBtn.disabled = false;
+    infCheckRepliesBtn.textContent = "Check for replies";
+  }
+});
+
+// Draft-a-reply / negotiate card. Used two ways: (1) right after "Check for
+// replies" detects something new, pre-filled with the snippet and already
+// open, and (2) as a persistent "Draft reply" button on any Influencers row
+// — a reply only shows up in (1) for the one run that detected it (it won't
+// be re-detected once marked replied), so without (2) there'd be no way to
+// come back later and actually respond to someone who already replied.
+// initialMessage is editable either way, since a persistent open from the
+// table has no snippet to start from — you paste in whatever they said.
+function negotiateCard(channelId, channelName, initialMessage, autoOpen) {
+  const div = document.createElement("div");
+  div.className = "reply-card";
+  div.innerHTML = `
+    <div class="card-title">${channelName}</div>
+    <button class="secondary open-reply-btn">Reply / Negotiate</button>
+    <div class="reply-form">
+      <div class="form-grid">
+        <div class="full">
+          <label>What did they say? (edit/paste as needed)</label>
+          <textarea class="r-message">${initialMessage || ""}</textarea>
+        </div>
+        <div>
+          <label>Their quoted price (optional)</label>
+          <input type="text" class="r-price" placeholder="e.g. 500" />
+        </div>
+        <div>
+          <label>Engagement rate, decimal (optional)</label>
+          <input type="text" class="r-engagement" placeholder="e.g. 0.04" />
+        </div>
+        <div class="full">
+          <label>Recent video view counts, comma-separated (optional, for CPM baseline)</label>
+          <input type="text" class="r-views" placeholder="120000, 95000, 140000" />
+        </div>
+      </div>
+      <button class="r-draftBtn">Draft reply</button>
+      <div class="r-draftContainer"></div>
+    </div>
+  `;
+
+  const openBtn = div.querySelector(".open-reply-btn");
+  const form = div.querySelector(".reply-form");
+  if (autoOpen) form.classList.add("open");
+  openBtn.addEventListener("click", () => {
+    form.classList.toggle("open");
+  });
+
+  // No message handed in up front (the persistent per-row "Draft reply"
+  // case, as opposed to right after "Check for replies" detects one) — pull
+  // their actual latest reply straight from Gmail instead of making the
+  // human paste it in by hand. It's already been read once via
+  // check-replies; there's no reason to ask again.
+  if (!initialMessage) {
+    const messageEl = div.querySelector(".r-message");
+    messageEl.placeholder = "Loading their message from Gmail…";
+    messageEl.disabled = true;
+    fetch(`/api/negotiate/last-message/${encodeURIComponent(channelId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        messageEl.value = data.message?.body ?? "";
+        messageEl.placeholder = data.message ? "" : "Couldn't auto-fetch a reply — paste it in manually.";
+      })
+      .catch((err) => {
+        messageEl.placeholder = "Couldn't auto-fetch (" + err.message + ") — paste it in manually.";
+      })
+      .finally(() => {
+        messageEl.disabled = false;
+      });
+  }
+
+  div.querySelector(".r-draftBtn").addEventListener("click", async () => {
+    const draftBtn = div.querySelector(".r-draftBtn");
+    const draftContainer = div.querySelector(".r-draftContainer");
+    const creatorMessage = div.querySelector(".r-message").value.trim();
+    const priceRaw = div.querySelector(".r-price").value.trim();
+    const engagementRaw = div.querySelector(".r-engagement").value.trim();
+    const viewsRaw = div.querySelector(".r-views").value.trim();
+    const viewCounts = viewsRaw ? viewsRaw.split(",").map((s) => Number(s.trim())).filter((n) => !Number.isNaN(n)) : [];
+
+    if (!creatorMessage) {
+      alert("Enter what they said first.");
+      return;
+    }
+
+    draftBtn.disabled = true;
+    draftBtn.textContent = "Drafting…";
+    try {
+      const contextRes = await fetch(`/api/negotiate/context/${encodeURIComponent(channelId)}`);
+      const context = await contextRes.json();
+      const to = context.lastSend?.to;
+      if (!to) throw new Error("No prior send on file for this channel — can't determine recipient.");
+
+      const res = await fetch("/api/negotiate/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelId,
+          channelName,
+          niche: context.lastSend?.niche,
+          creatorMessage,
+          quotedPrice: priceRaw || undefined,
+          engagementRate: engagementRaw || undefined,
+          viewCounts,
+        }),
+      });
+      const draft = await res.json();
+      if (draft.error) throw new Error(draft.error);
+
+      draftContainer.innerHTML = `
+        <div class="draft-box">
+          ${draft.reviewNote ? `<p class="review-note">${draft.reviewNote}</p>` : ""}
+          ${draft.roundWarning ? `<p class="review-note">${draft.roundWarning}</p>` : ""}
+          <p class="card-meta">Recommended action: ${draft.action}${draft.evaluation ? ` — CPM verdict: ${draft.evaluation.verdict}` : ""}</p>
+          <div class="draft-body">${draft.body}</div>
+          <div class="actions">
+            <button class="secondary r-editBtn">Edit</button>
+            <button class="r-sendBtn" ${draft.approved ? "" : "disabled"}>Send to ${to}</button>
+            <button class="secondary r-discardBtn">Discard</button>
+          </div>
+          <div class="status-msg"></div>
+        </div>
+      `;
+
+      const bodyEl = draftContainer.querySelector(".draft-body");
+      const editBtn = draftContainer.querySelector(".r-editBtn");
+      const sendBtn = draftContainer.querySelector(".r-sendBtn");
+      const discardBtn = draftContainer.querySelector(".r-discardBtn");
+      const statusMsg = draftContainer.querySelector(".status-msg");
+
+      if (!draft.approved) {
+        statusMsg.textContent = "Not approved by supervisor — edit to fix the issue, then send.";
+        statusMsg.className = "status-msg err";
+      }
+
+      editBtn.addEventListener("click", () => {
+        bodyEl.contentEditable = "true";
+        bodyEl.focus();
+        sendBtn.disabled = false;
+        editBtn.disabled = true;
+        editBtn.textContent = "Editing…";
+      });
+
+      sendBtn.addEventListener("click", async () => {
+        sendBtn.disabled = true;
+        sendBtn.textContent = "Sending…";
+        try {
+          const sendRes = await fetch("/api/negotiate/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              channelId,
+              channelName,
+              niche: context.lastSend?.niche,
+              to,
+              body: bodyEl.textContent.trim(),
+              quotedPrice: priceRaw || undefined,
+              action: draft.action,
+              gmailThreadId: context.lastSend?.gmailThreadId,
+              rfcMessageId: context.lastSend?.rfcMessageId,
+            }),
+          });
+          const sendResult = await sendRes.json();
+          if (sendResult.error) throw new Error(sendResult.error);
+          statusMsg.textContent = `Sent! Deal status: ${sendResult.dealStatus ?? "n/a"}.`;
+          statusMsg.className = "status-msg ok";
+          sendBtn.remove();
+          discardBtn.remove();
+          editBtn.remove();
+          loadInfluencers();
+        } catch (err) {
+          statusMsg.textContent = "Failed: " + err.message;
+          statusMsg.className = "status-msg err";
+          sendBtn.disabled = false;
+          sendBtn.textContent = "Retry send";
+        }
+      });
+
+      discardBtn.addEventListener("click", () => {
+        draftContainer.innerHTML = "";
+      });
+    } catch (err) {
+      alert("Draft failed: " + err.message);
+    } finally {
+      draftBtn.disabled = false;
+      draftBtn.textContent = "Draft reply";
+    }
+  });
+
+  return div;
+}
+
+// --- Report / INFLUENCERS.md / dashboard link -------------------------------
+const infReportBtn = document.getElementById("inf-reportBtn");
+const infReportBox = document.getElementById("inf-reportBox");
+infReportBtn.addEventListener("click", async () => {
+  infReportBox.innerHTML = `<p class="empty">Loading…</p>`;
+  try {
+    const res = await fetch("/api/report");
+    const r = await res.json();
+    infReportBox.innerHTML = `<pre class="report-box">Program day: ${r.status.programDay}
+Real outreaches sent (all time): ${r.status.totalOutreaches}
+Real outreaches sent today: ${r.status.outreachesToday}
+Current phase: ${r.status.phase}
+Phase progress: ${r.status.phaseProgress} / ${r.status.phaseTarget}
+On track: ${r.status.onTrack ? "YES" : "NO — falling behind pace"}
+${r.status.placeholderCount > 0 ? `(${r.status.placeholderCount} test/placeholder send(s), not counted above)\n` : ""}
+Follow-ups due now: ${r.followUpsDue}
+Threads needing a fresh angle: ${r.needsNewThread}</pre>`;
+  } catch (err) {
+    infReportBox.innerHTML = `<p class="empty">Failed: ${err.message}</p>`;
+  }
+});
+
+const infMdBtn = document.getElementById("inf-mdBtn");
+const infMdStatus = document.getElementById("inf-mdStatus");
+infMdBtn.addEventListener("click", async () => {
+  infMdBtn.disabled = true;
+  infMdBtn.textContent = "Writing…";
+  try {
+    const res = await fetch("/api/influencers-md", { method: "POST" });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    infMdStatus.textContent = `Wrote ${data.count} creator(s) to INFLUENCERS.md.`;
+    infMdStatus.className = "status-msg ok";
+  } catch (err) {
+    infMdStatus.textContent = "Failed: " + err.message;
+    infMdStatus.className = "status-msg err";
+  } finally {
+    infMdBtn.disabled = false;
+    infMdBtn.textContent = "Regenerate INFLUENCERS.md";
+  }
+});
+
+document.getElementById("inf-dashboardBtn").addEventListener("click", () => {
+  window.open("http://localhost:4741", "_blank");
+});
+
+// --- Follow-ups -----------------------------------------------------------
+const fuRefreshBtn = document.getElementById("fu-refreshBtn");
+const fuSummary = document.getElementById("fu-summary");
+const fuList = document.getElementById("fu-list");
+
+function followupCard(c) {
+  const div = document.createElement("div");
+  div.className = "followup-card";
+  div.innerHTML = `
+    <div class="card-head">
+      <span class="card-title">${c.channelName}</span>
+      <span class="card-meta">${c.niche} — follow-up #${c.followUpNumber} (${c.weight})</span>
+    </div>
+    <p class="card-meta">Last sent ${new Date(c.lastSentAt).toLocaleDateString()}</p>
+    <button class="fu-draftBtn">Draft follow-up</button>
+    <div class="fu-draftContainer"></div>
+  `;
+
+  div.querySelector(".fu-draftBtn").addEventListener("click", async () => {
+    const draftBtn = div.querySelector(".fu-draftBtn");
+    const draftContainer = div.querySelector(".fu-draftContainer");
+    draftBtn.disabled = true;
+    draftBtn.textContent = "Drafting…";
+    try {
+      const res = await fetch("/api/followups/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelName: c.channelName, niche: c.niche, followUpNumber: c.followUpNumber, weight: c.weight }),
+      });
+      const draft = await res.json();
+      if (draft.error) throw new Error(draft.error);
+
+      draftContainer.innerHTML = `
+        <div class="draft-box">
+          <div class="draft-body">${draft.body}</div>
+          <div class="actions">
+            <button class="secondary fu-editBtn">Edit</button>
+            <button class="fu-sendBtn">Send to ${c.to}</button>
+            <button class="secondary fu-discardBtn">Discard</button>
+          </div>
+          <div class="status-msg"></div>
+        </div>
+      `;
+
+      const bodyEl = draftContainer.querySelector(".draft-body");
+      const editBtn = draftContainer.querySelector(".fu-editBtn");
+      const sendBtn = draftContainer.querySelector(".fu-sendBtn");
+      const discardBtn = draftContainer.querySelector(".fu-discardBtn");
+      const statusMsg = draftContainer.querySelector(".status-msg");
+
+      editBtn.addEventListener("click", () => {
+        bodyEl.contentEditable = "true";
+        bodyEl.focus();
+        editBtn.disabled = true;
+        editBtn.textContent = "Editing…";
+      });
+
+      sendBtn.addEventListener("click", async () => {
+        sendBtn.disabled = true;
+        sendBtn.textContent = "Sending…";
+        try {
+          const sendRes = await fetch("/api/followups/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: c.to,
+              subject: `Re: ${c.lastSubjectContext}`,
+              body: bodyEl.textContent.trim(),
+              channelName: c.channelName,
+              niche: c.niche,
+              gmailThreadId: c.gmailThreadId,
+              rfcMessageId: c.rfcMessageId,
+            }),
+          });
+          const sendResult = await sendRes.json();
+          if (sendResult.error) throw new Error(sendResult.error);
+          statusMsg.textContent = "Sent!";
+          statusMsg.className = "status-msg ok";
+          sendBtn.remove();
+          discardBtn.remove();
+          editBtn.remove();
+        } catch (err) {
+          statusMsg.textContent = "Failed: " + err.message;
+          statusMsg.className = "status-msg err";
+          sendBtn.disabled = false;
+          sendBtn.textContent = "Retry send";
+        }
+      });
+
+      discardBtn.addEventListener("click", () => {
+        draftContainer.innerHTML = "";
+      });
+    } catch (err) {
+      alert("Draft failed: " + err.message);
+    } finally {
+      draftBtn.disabled = false;
+      draftBtn.textContent = "Draft follow-up";
+    }
+  });
+
+  return div;
+}
+
+async function loadFollowups() {
+  fuList.innerHTML = `<p class="empty">Loading…</p>`;
+  try {
+    const res = await fetch("/api/followups");
+    const data = await res.json();
+    fuSummary.textContent = `Due now: ${data.due.length} | Not yet due: ${data.notYetDue.length} | Needs new thread (max follow-ups reached): ${data.needsNewThread.length}`;
+    fuList.innerHTML = "";
+    if (data.due.length === 0) {
+      fuList.innerHTML = `<p class="empty">Nothing due right now.</p>`;
+      return;
+    }
+    for (const c of data.due) {
+      if (!c.gmailThreadId || !c.rfcMessageId) continue; // sent before threading existed — CLI-only fallback
+      fuList.appendChild(followupCard(c));
+    }
+  } catch (err) {
+    fuList.innerHTML = `<p class="empty">Failed to load: ${err.message}</p>`;
+  }
+}
+fuRefreshBtn.addEventListener("click", loadFollowups);
+
+// --- Chat with agent -------------------------------------------------------
+const chatAgentSelect = document.getElementById("chat-agent");
+const chatNote = document.getElementById("chat-note");
+const chatLog = document.getElementById("chat-log");
+const chatInput = document.getElementById("chat-input");
+const chatSendBtn = document.getElementById("chat-sendBtn");
+const chatClearBtn = document.getElementById("chat-clearBtn");
+
+// Keyed by agent id so switching agents (or tabs) doesn't lose each
+// conversation's history — history lives only in this tab, not on the server.
+const chatHistories = {};
+let chatAgentsLoaded = false;
+
+async function loadChatAgents() {
+  if (chatAgentsLoaded) return;
+  chatAgentsLoaded = true;
+  try {
+    const res = await fetch("/api/chat/agents");
+    const data = await res.json();
+    chatAgentSelect.innerHTML = data.agents
+      .map((a) => `<option value="${a.id}" data-note="${(a.note || "").replace(/"/g, "&quot;")}">${a.label}</option>`)
+      .join("");
+    updateChatNote();
+    renderChatLog();
+  } catch (err) {
+    chatNote.textContent = "Failed to load agent list: " + err.message;
+  }
+}
+
+function updateChatNote() {
+  chatNote.textContent = chatAgentSelect.selectedOptions[0]?.dataset.note ?? "";
+}
+
+chatAgentSelect.addEventListener("change", () => {
+  updateChatNote();
+  renderChatLog();
+});
+
+function currentHistory() {
+  const id = chatAgentSelect.value;
+  if (!chatHistories[id]) chatHistories[id] = [];
+  return chatHistories[id];
+}
+
+function renderChatLog() {
+  const history = currentHistory();
+  chatLog.innerHTML = "";
+  for (const msg of history) {
+    const div = document.createElement("div");
+    div.className = "chat-msg " + msg.role;
+    div.textContent = msg.content;
+    chatLog.appendChild(div);
+  }
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  const agentId = chatAgentSelect.value;
+  const history = currentHistory();
+  history.push({ role: "user", content: text });
+  chatInput.value = "";
+  renderChatLog();
+
+  chatSendBtn.disabled = true;
+  chatSendBtn.textContent = "…";
+  try {
+    const res = await fetch(`/api/chat/${encodeURIComponent(agentId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: history }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    history.push({ role: "assistant", content: data.reply });
+    renderChatLog();
+  } catch (err) {
+    history.push({ role: "assistant", content: "(error: " + err.message + ")" });
+    renderChatLog();
+  } finally {
+    chatSendBtn.disabled = false;
+    chatSendBtn.textContent = "Send";
+  }
+}
+
+chatSendBtn.addEventListener("click", sendChatMessage);
+chatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+});
+chatClearBtn.addEventListener("click", () => {
+  chatHistories[chatAgentSelect.value] = [];
+  renderChatLog();
+});
+
+document.querySelector('.tab-btn[data-tab="chat"]').addEventListener("click", loadChatAgents);
 </script>
 </body>
 </html>

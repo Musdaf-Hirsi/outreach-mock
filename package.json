@@ -6,12 +6,15 @@
   "scripts": {
     "dev": "tsx src/run.ts",
     "interactive": "tsx src/run-interactive.ts",
+    "manual-add": "tsx src/run-manual.ts",
+    "influencers-md": "tsx src/report-influencers.ts",
     "web": "tsx src/web/server.ts",
     "dashboard": "tsx src/viz/server.ts",
     "report": "tsx src/report.ts",
     "followups": "tsx src/run-followups.ts",
     "negotiate": "tsx src/run-negotiate.ts",
     "mark-replied": "tsx src/mark-replied.ts",
+    "check-replies": "tsx src/check-replies.ts",
     "rate-creator": "tsx src/rate-creator.ts",
     "gmail-auth": "tsx src/gmail/get-token.ts",
     "typecheck": "tsc --noEmit"
