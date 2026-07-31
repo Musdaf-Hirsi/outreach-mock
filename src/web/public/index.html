@@ -2,96 +2,156 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Outreach — Dashboard</title>
+<title>Outreach — Dispatch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
+  /*
+    Design concept: "dispatch desk" — the operations console for an outreach
+    agency. Cool graphite ground (paper-in-a-ledger, not warm cream) so a
+    single warm signal-flag amber accent actually pops instead of competing
+    with a warm background. Fraunces (a display serif with real character in
+    its heavier weights) carries section titles like a letterhead; IBM Plex
+    Sans runs the dense operational text; IBM Plex Mono lines up every
+    number/timestamp/id, since this is a tool full of counters and dates.
+    Status color is semantic and separate from the amber accent — the accent
+    marks "the thing to click," semantic color marks "the thing's state."
+  */
   :root {
-    --bg: #f4f5f7;
+    --bg: #eef1f4;
     --surface: #ffffff;
-    --surface-2: #fafbfc;
-    --border: #e3e6ea;
-    --text: #16181d;
-    --text-dim: #6b7280;
-    --accent: #4f46e5;
-    --accent-hover: #4338ca;
-    --accent-soft: #eef0ff;
-    --warm: #b45309;
-    --warm-soft: #fef3e2;
-    --danger: #dc2626;
-    --danger-soft: #fef2f2;
-    --success-soft: #ecfdf5;
-    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
-    --shadow-md: 0 2px 8px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
-    --radius: 10px;
-    --sidebar-w: 240px;
-    --sans: "Inter", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --surface-2: #f4f6f8;
+    --border: #dde2e8;
+    --text: #171a1f;
+    --text-dim: #5c6570;
+    --accent: #b8760f;
+    --accent-hover: #9c630c;
+    --accent-soft: #faf1de;
+    --accent-ink: #171a1f;
+
+    --ok: #157f52;
+    --ok-soft: #e6f5ee;
+    --warn: #b6540f;
+    --warn-soft: #fbeee1;
+    --bad: #b83a3a;
+    --bad-soft: #fbe9e9;
+    --cold: #5c6570;
+    --cold-soft: #eceef1;
+
+    --shadow-sm: 0 1px 2px rgba(23, 26, 31, 0.05);
+    --shadow-md: 0 6px 20px rgba(23, 26, 31, 0.08), 0 1px 3px rgba(23, 26, 31, 0.05);
+    --r-sm: 6px;
+    --r-md: 8px;
+    --sidebar-w: 248px;
+
+    --display: "Fraunces", Georgia, serif;
+    --sans: "IBM Plex Sans", -apple-system, "Segoe UI", Arial, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0b0c0f; --surface: #16181d; --surface-2: #1b1e24; --border: #2a2d34;
-      --text: #eef0f3; --text-dim: #9aa1ac; --accent: #818cf8; --accent-hover: #a5b4fc;
-      --accent-soft: #1e1f3d; --warm: #f0a742; --warm-soft: #2e2110;
-      --danger: #f87171; --danger-soft: #2c1416; --success-soft: #10231b;
-      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3); --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+      --bg: #14171b; --surface: #1b1f24; --surface-2: #21252b; --border: #2c3138;
+      --text: #edf0f3; --text-dim: #939ba6;
+      --accent: #d99a3f; --accent-hover: #e8ac57; --accent-soft: #2c2314; --accent-ink: #171a1f;
+      --ok: #4ade8c; --ok-soft: #133226;
+      --warn: #e8a05e; --warn-soft: #33230f;
+      --bad: #f0807f; --bad-soft: #331a1a;
+      --cold: #9aa2ab; --cold-soft: #22262c;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35); --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.45);
     }
   }
+  :root[data-theme="dark"] {
+    --bg: #14171b; --surface: #1b1f24; --surface-2: #21252b; --border: #2c3138;
+    --text: #edf0f3; --text-dim: #939ba6;
+    --accent: #d99a3f; --accent-hover: #e8ac57; --accent-soft: #2c2314; --accent-ink: #171a1f;
+    --ok: #4ade8c; --ok-soft: #133226;
+    --warn: #e8a05e; --warn-soft: #33230f;
+    --bad: #f0807f; --bad-soft: #331a1a;
+    --cold: #9aa2ab; --cold-soft: #22262c;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35); --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.45);
+  }
+  :root[data-theme="light"] {
+    --bg: #eef1f4; --surface: #ffffff; --surface-2: #f4f6f8; --border: #dde2e8;
+    --text: #171a1f; --text-dim: #5c6570;
+    --accent: #b8760f; --accent-hover: #9c630c; --accent-soft: #faf1de; --accent-ink: #171a1f;
+    --ok: #157f52; --ok-soft: #e6f5ee;
+    --warn: #b6540f; --warn-soft: #fbeee1;
+    --bad: #b83a3a; --bad-soft: #fbe9e9;
+    --cold: #5c6570; --cold-soft: #eceef1;
+    --shadow-sm: 0 1px 2px rgba(23, 26, 31, 0.05); --shadow-md: 0 6px 20px rgba(23, 26, 31, 0.08), 0 1px 3px rgba(23, 26, 31, 0.05);
+  }
+
   * { box-sizing: border-box; }
   html, body {
     margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans);
     -webkit-font-smoothing: antialiased;
   }
   body { min-height: 100vh; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ::selection { background: var(--accent-soft); }
 
   .shell { display: flex; min-height: 100vh; }
 
   /* --- Sidebar --- */
   .sidebar {
     width: var(--sidebar-w); flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border);
-    padding: 1.4rem 1rem; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column;
+    padding: 1.5rem 1rem; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column;
   }
-  .brand { display: flex; align-items: center; gap: 0.6rem; padding: 0 0.5rem; margin-bottom: 1.6rem; }
-  .brand-mark {
-    width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-    display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 0.95rem; flex-shrink: 0;
-  }
-  .brand-name { font-weight: 700; font-size: 1rem; letter-spacing: -0.01em; }
+  .brand { display: flex; align-items: baseline; gap: 0.5rem; padding: 0 0.4rem; margin-bottom: 2rem; }
+  .brand-mark { font-family: var(--display); font-weight: 700; font-size: 1.05rem; color: var(--accent); }
+  .brand-name { font-family: var(--display); font-weight: 600; font-size: 1.05rem; letter-spacing: -0.01em; }
 
-  .tabs { display: flex; flex-direction: column; gap: 0.15rem; }
+  .tabs { display: flex; flex-direction: column; gap: 0.1rem; }
   .tab-btn {
-    display: flex; align-items: center; gap: 0.6rem; text-align: left;
-    background: none; border: none; color: var(--text-dim); font-weight: 500; font-size: 0.88rem;
-    padding: 0.55rem 0.7rem; border-radius: 8px; cursor: pointer; transition: background 0.12s, color 0.12s;
+    display: flex; align-items: center; gap: 0.65rem; text-align: left;
+    background: none; border: none; border-left: 2px solid transparent; color: var(--text-dim);
+    font-family: var(--sans); font-weight: 500; font-size: 0.86rem;
+    padding: 0.5rem 0.7rem; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s;
   }
+  .tab-btn svg { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.75; }
   .tab-btn:hover { background: var(--surface-2); color: var(--text); }
-  .tab-btn.active { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+  .tab-btn.active { color: var(--accent); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 600; }
+  .tab-btn.active svg { opacity: 1; }
 
-  .sidebar-footer { margin-top: auto; padding: 0.7rem; font-size: 0.72rem; color: var(--text-dim); }
+  .sidebar-footer {
+    margin-top: auto; padding: 0.7rem; font-size: 0.7rem; color: var(--text-dim);
+    font-family: var(--mono); font-variant-numeric: tabular-nums; border-top: 1px solid var(--border); padding-top: 0.9rem;
+  }
 
   /* --- Main --- */
-  .main { flex: 1; min-width: 0; padding: 1.6rem 2.2rem 4rem; max-width: 1100px; }
+  .main { flex: 1; min-width: 0; padding: 1.8rem 2.4rem 4rem; max-width: 1180px; }
 
-  .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.4rem; flex-wrap: wrap; }
-  h1 { font-size: 1.3rem; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
-  .sub { color: var(--text-dim); font-size: 0.88rem; margin: 0; }
+  .topbar { margin-bottom: 1.6rem; }
+  h1 { font-family: var(--display); font-weight: 600; font-size: 1.5rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; text-wrap: balance; }
+  .sub { color: var(--text-dim); font-size: 0.88rem; margin: 0 0 1.1rem; }
 
-  .progress {
-    font-size: 0.82rem; color: var(--text-dim); font-weight: 500;
-    background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
-    padding: 0.5rem 1rem; box-shadow: var(--shadow-sm); white-space: nowrap;
+  /* stat strip */
+  .stat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.7rem; }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: 0.8rem 1rem; box-shadow: var(--shadow-sm);
   }
+  .stat-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; margin-bottom: 0.35rem; }
+  .stat-value { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 1.35rem; font-weight: 600; line-height: 1; }
+  .stat-value.ok { color: var(--ok); }
+  .stat-value.warn { color: var(--warn); }
+  .stat-sub { font-size: 0.74rem; color: var(--text-dim); margin-top: 0.3rem; }
 
-  .search-row { display: flex; gap: 0.6rem; margin-bottom: 1rem; }
+  .progress { display: none; } /* superseded by .stat-strip; kept for JS compat, hidden visually */
+
+  .search-row { display: flex; gap: 0.6rem; margin: 1.4rem 0 1rem; }
   input[type="text"], input[type="email"] {
-    flex: 1; padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
-    background: var(--surface); color: var(--text); font-size: 0.9rem; transition: border-color 0.12s, box-shadow 0.12s;
+    flex: 1; padding: 0.6rem 0.85rem; border-radius: var(--r-sm); border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font-size: 0.88rem; font-family: var(--sans); transition: border-color 0.12s, box-shadow 0.12s;
   }
   input[type="text"]:focus, input[type="email"]:focus, select:focus, textarea:focus {
     outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
   }
   button {
-    padding: 0.55rem 1.05rem; border-radius: 8px; border: none;
-    background: var(--accent); color: #fff; font-weight: 600; font-size: 0.86rem; cursor: pointer;
-    transition: background 0.12s, transform 0.05s; box-shadow: var(--shadow-sm);
+    padding: 0.55rem 1.05rem; border-radius: var(--r-sm); border: none;
+    background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 0.84rem; cursor: pointer;
+    transition: background 0.12s, transform 0.05s; box-shadow: var(--shadow-sm); font-family: var(--sans);
   }
   button:hover:not(:disabled) { background: var(--accent-hover); }
   button:active:not(:disabled) { transform: translateY(1px); }
@@ -100,46 +160,56 @@
   button.secondary:hover:not(:disabled) { background: var(--surface-2); }
 
   .card {
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
     padding: 1.1rem 1.3rem; margin-bottom: 1rem; box-shadow: var(--shadow-sm);
   }
   .card.contacted { opacity: 0.55; }
   .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
-  .card-title { font-weight: 700; font-size: 0.95rem; }
+  .card-title { font-weight: 700; font-size: 0.93rem; }
   .channel-link { color: var(--accent); text-decoration: none; margin-left: 0.3rem; font-weight: 400; }
   .channel-link:hover { text-decoration: underline; }
-  .card-meta { color: var(--text-dim); font-size: 0.8rem; }
+  .card-meta { color: var(--text-dim); font-size: 0.79rem; font-family: var(--mono); font-variant-numeric: tabular-nums; }
   .card-video { color: var(--text-dim); font-size: 0.84rem; margin: 0.4rem 0 0.7rem; }
 
-  .tag { display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 0.2rem 0.55rem; border-radius: 999px; margin-right: 0.4rem; }
-  .tag.found { background: var(--accent-soft); color: var(--accent); }
-  .tag.contacted { background: var(--warm-soft); color: var(--warm); }
+  .tag { display: inline-block; font-size: 0.68rem; font-weight: 600; padding: 0.2rem 0.55rem; border-radius: 4px; margin-right: 0.4rem; }
+  .tag.found { background: var(--accent-soft); color: var(--accent-hover); }
+  .tag.contacted { background: var(--cold-soft); color: var(--cold); }
+
+  /* semantic status badges, used by JS for deal status / replied state */
+  .status-badge { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 4px; white-space: nowrap; }
+  .status-badge.cold { background: var(--cold-soft); color: var(--cold); }
+  .status-badge.replied, .status-badge.negotiating { background: var(--accent-soft); color: var(--accent-hover); }
+  .status-badge.closed { background: var(--ok-soft); color: var(--ok); }
+  .status-badge.declined { background: var(--bad-soft); color: var(--bad); }
+  .status-badge.parked { background: var(--cold-soft); color: var(--cold); }
+  .status-badge.yes { background: var(--ok-soft); color: var(--ok); }
+  .status-badge.no { background: var(--cold-soft); color: var(--cold); }
 
   .hints { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.7rem; word-break: break-all; }
-  .hints a { color: var(--accent); }
+  .hints a { color: var(--accent-hover); }
 
   .card-actions-row { display: flex; gap: 0.5rem; margin: 0 0 1rem; flex-wrap: wrap; }
-  .review-note { font-size: 0.78rem; color: var(--accent); margin: 0 0 0.5rem; font-style: italic; }
+  .review-note { font-size: 0.78rem; color: var(--accent-hover); margin: 0 0 0.5rem; font-style: italic; }
   .email-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
-  .section-title { font-size: 0.95rem; margin: 0 0 0.6rem; font-weight: 700; }
+  .section-title { font-family: var(--display); font-size: 1.02rem; margin: 0 0 0.7rem; font-weight: 600; }
   .saved-row {
     display: flex; justify-content: space-between; align-items: center;
-    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm);
     padding: 0.6rem 0.9rem; margin-bottom: 0.5rem; font-size: 0.88rem;
   }
-  .draft-box { margin-top: 0.8rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem 1.1rem; }
+  .draft-box { margin-top: 0.8rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 0.9rem 1.1rem; }
   .draft-subject { font-weight: 600; margin-bottom: 0.4rem; font-size: 0.92rem; }
-  .draft-body { white-space: pre-wrap; font-size: 0.88rem; color: var(--text-dim); margin-bottom: 0.7rem; line-height: 1.5; }
+  .draft-body { white-space: pre-wrap; font-size: 0.88rem; color: var(--text-dim); margin-bottom: 0.7rem; line-height: 1.55; }
   .draft-subject[contenteditable="true"], .draft-body[contenteditable="true"] {
     outline: 1px dashed var(--accent); border-radius: 4px; padding: 0.2rem 0.4rem; color: var(--text);
   }
   .actions { display: flex; gap: 0.5rem; }
-  .remove-btn { background: var(--danger); }
-  .remove-btn:hover:not(:disabled) { background: var(--danger); opacity: 0.85; }
+  .remove-btn { background: var(--bad); color: #fff; }
+  .remove-btn:hover:not(:disabled) { background: var(--bad); opacity: 0.85; }
 
   .status-msg { font-size: 0.83rem; margin-top: 0.5rem; font-weight: 500; }
-  .status-msg.ok { color: #059669; }
-  .status-msg.err { color: var(--danger); }
+  .status-msg.ok { color: var(--ok); }
+  .status-msg.err { color: var(--bad); }
 
   .empty { color: var(--text-dim); font-size: 0.88rem; }
 
@@ -148,37 +218,42 @@
 
   .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin-bottom: 0.7rem; }
   .form-grid .full { grid-column: 1 / -1; }
-  .form-grid label { display: block; font-size: 0.76rem; color: var(--text-dim); font-weight: 600; margin-bottom: 0.3rem; }
+  .form-grid label { display: block; font-size: 0.74rem; color: var(--text-dim); font-weight: 600; margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.03em; }
   select, textarea {
-    width: 100%; padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
-    background: var(--surface); color: var(--text); font-size: 0.9rem; font-family: inherit; transition: border-color 0.12s, box-shadow 0.12s;
+    width: 100%; padding: 0.6rem 0.85rem; border-radius: var(--r-sm); border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font-size: 0.88rem; font-family: var(--sans); transition: border-color 0.12s, box-shadow 0.12s;
   }
   textarea { resize: vertical; min-height: 3.2rem; }
 
-  table.influencers { width: 100%; border-collapse: collapse; font-size: 0.84rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); }
+  table.influencers { width: 100%; border-collapse: collapse; font-size: 0.83rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; box-shadow: var(--shadow-sm); }
   table.influencers th, table.influencers td { text-align: left; padding: 0.65rem 0.8rem; border-bottom: 1px solid var(--border); }
-  table.influencers th { color: var(--text-dim); font-weight: 600; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em; background: var(--surface-2); }
+  table.influencers th { color: var(--text-dim); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; background: var(--surface-2); }
+  table.influencers td.num, table.influencers td.date { font-family: var(--mono); font-variant-numeric: tabular-nums; }
   table.influencers tbody tr:hover { background: var(--surface-2); }
   table.influencers tbody tr:last-child td { border-bottom: none; }
   table.influencers select, table.influencers input { width: auto; padding: 0.3rem 0.4rem; font-size: 0.8rem; }
   .row-actions { display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
 
-  .reply-card { background: var(--warm-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1.1rem; margin-bottom: 0.8rem; }
+  .reply-card { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--warn); border-radius: var(--r-md); padding: 0.9rem 1.1rem; margin-bottom: 0.8rem; box-shadow: var(--shadow-sm); }
   .reply-snippet { font-size: 0.85rem; color: var(--text-dim); margin: 0.3rem 0 0.6rem; font-style: italic; }
   .reply-form { display: none; margin-top: 0.6rem; }
   .reply-form.open { display: block; }
 
-  .followup-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1.1rem; margin-bottom: 0.8rem; box-shadow: var(--shadow-sm); }
+  .followup-card { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--cold); border-radius: var(--r-md); padding: 0.9rem 1.1rem; margin-bottom: 0.8rem; box-shadow: var(--shadow-sm); }
 
-  pre.report-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1.1rem; font-size: 0.84rem; white-space: pre-wrap; box-shadow: var(--shadow-sm); }
+  pre.report-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 0.9rem 1.1rem; font-size: 0.84rem; font-family: var(--mono); white-space: pre-wrap; box-shadow: var(--shadow-sm); font-variant-numeric: tabular-nums; }
 
   .chat-log { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 0.8rem; max-height: 58vh; overflow-y: auto; padding: 0.4rem; }
-  .chat-msg { max-width: 78%; padding: 0.65rem 0.95rem; border-radius: 12px; font-size: 0.87rem; white-space: pre-wrap; line-height: 1.45; }
-  .chat-msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 3px; }
+  .chat-msg { max-width: 78%; padding: 0.65rem 0.95rem; border-radius: 12px; font-size: 0.87rem; white-space: pre-wrap; line-height: 1.5; }
+  .chat-msg.user { align-self: flex-end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 3px; }
   .chat-msg.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 3px; box-shadow: var(--shadow-sm); }
   .chat-input-row { display: flex; gap: 0.5rem; }
   .chat-input-row textarea { flex: 1; min-height: 2.6rem; }
   .chat-note { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.8rem; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
 
   @media (max-width: 780px) {
     .shell { flex-direction: column; }
@@ -193,26 +268,45 @@
 <div class="shell">
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">O</div>
-      <div class="brand-name">Outreach</div>
+      <span class="brand-mark">§</span>
+      <div class="brand-name">Dispatch</div>
     </div>
     <nav class="tabs">
-      <button class="tab-btn active" data-tab="youtube">🔍 Find on YouTube</button>
-      <button class="tab-btn" data-tab="manual">✎ Add manually</button>
-      <button class="tab-btn" data-tab="influencers">👥 Influencers</button>
-      <button class="tab-btn" data-tab="followups">↩ Follow-ups</button>
-      <button class="tab-btn" data-tab="chat">💬 Chat with agent</button>
+      <button class="tab-btn active" data-tab="youtube">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Find on YouTube
+      </button>
+      <button class="tab-btn" data-tab="manual">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+        Add manually
+      </button>
+      <button class="tab-btn" data-tab="influencers">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Influencers
+      </button>
+      <button class="tab-btn" data-tab="followups">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+        Follow-ups
+      </button>
+      <button class="tab-btn" data-tab="chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        Chat with agent
+      </button>
     </nav>
-    <div class="sidebar-footer">Local dashboard — 127.0.0.1:4742</div>
+    <div class="sidebar-footer">127.0.0.1:4742</div>
   </aside>
 
   <main class="main">
   <div class="topbar">
-    <div>
-      <h1>Influencer outreach</h1>
-      <p class="sub">Find real candidates, confirm their real email manually, review the draft, then send.</p>
+    <h1>Influencer outreach</h1>
+    <p class="sub">Find real candidates, confirm their real email manually, review the draft, then send.</p>
+    <div class="stat-strip" id="statStrip">
+      <div class="stat-card"><div class="stat-label">Program day</div><div class="stat-value" id="stat-day">—</div></div>
+      <div class="stat-card"><div class="stat-label">Sent this phase</div><div class="stat-value" id="stat-phase">—</div></div>
+      <div class="stat-card"><div class="stat-label">Sent today</div><div class="stat-value" id="stat-today">—</div></div>
+      <div class="stat-card"><div class="stat-label">Pace</div><div class="stat-value" id="stat-pace">—</div></div>
     </div>
-    <div class="progress" id="progress">Loading progress…</div>
+    <div class="progress" id="progress"></div>
   </div>
 
   <div id="tab-youtube" class="tab-panel active">
@@ -356,11 +450,22 @@ renderSavedList();
 async function loadProgress() {
   const res = await fetch("/api/progress");
   const p = await res.json();
-  progressEl.textContent =
-    `Program day ${p.programDay} — ${p.phaseProgress}/${p.phaseTarget} outreaches this phase — ` +
-    (p.onTrack ? "on track" : "behind pace");
+  document.getElementById("stat-day").textContent = p.programDay;
+  document.getElementById("stat-phase").textContent = `${p.phaseProgress}/${p.phaseTarget}`;
+  document.getElementById("stat-today").textContent = p.outreachesToday;
+  const paceEl = document.getElementById("stat-pace");
+  paceEl.textContent = p.onTrack ? "On track" : "Behind";
+  paceEl.className = "stat-value " + (p.onTrack ? "ok" : "warn");
 }
 loadProgress();
+
+// Maps a deal status / yes-no value to a semantic status-badge span —
+// used by the Influencers table so state reads as a color/shape at a
+// glance, not just a word buried in a row of text.
+function statusBadge(value) {
+  const key = String(value).toLowerCase();
+  return `<span class="status-badge ${key}">${value}</span>`;
+}
 
 // Shared by both the YouTube and manual-add flows. Renders a draft with
 // Edit/Send/Discard actions into `container`. Editing makes the subject/body
@@ -710,10 +815,10 @@ async function loadInfluencers() {
         <td>${c.channelName}</td>
         <td>${PLATFORM_LABEL[c.platform] || c.platform}</td>
         <td>${c.niche}</td>
-        <td>${c.dealStatus}</td>
-        <td>${c.replied ? "yes" : "no"}</td>
-        <td>${c.timesContacted}</td>
-        <td>${new Date(c.lastContactedAt).toLocaleDateString()}</td>
+        <td>${statusBadge(c.dealStatus)}</td>
+        <td>${statusBadge(c.replied ? "yes" : "no")}</td>
+        <td class="num">${c.timesContacted}</td>
+        <td class="date">${new Date(c.lastContactedAt).toLocaleDateString()}</td>
         <td>
           <select class="rate-select">
             <option value="">-</option>
