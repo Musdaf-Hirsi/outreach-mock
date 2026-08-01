@@ -247,6 +247,12 @@
   .chat-msg { max-width: 78%; padding: 0.65rem 0.95rem; border-radius: 12px; font-size: 0.87rem; white-space: pre-wrap; line-height: 1.5; }
   .chat-msg.user { align-self: flex-end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 3px; }
   .chat-msg.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 3px; box-shadow: var(--shadow-sm); }
+  .chat-msg p { margin: 0 0 0.5rem; }
+  .chat-msg p:last-child { margin-bottom: 0; }
+  .chat-msg ul { margin: 0 0 0.5rem; padding-left: 1.1rem; }
+  .chat-msg ul:last-child { margin-bottom: 0; }
+  .chat-msg li { margin-bottom: 0.2rem; }
+  .chat-msg code { font-family: var(--mono); font-size: 0.85em; background: rgba(127,127,127,0.15); padding: 0.05em 0.35em; border-radius: 4px; }
   .chat-input-row { display: flex; gap: 0.5rem; }
   .chat-input-row textarea { flex: 1; min-height: 2.6rem; }
   .chat-note { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.8rem; }
@@ -1337,13 +1343,46 @@ function currentHistory() {
   return chatHistories[id];
 }
 
+// Agent replies are written in markdown (bold, bullet lists) — a plain
+// textContent render just showed the raw ** and - characters instead of
+// formatting them, which is why the chat looked so much rougher than a
+// normal chat UI. This handles the small subset agents actually produce
+// (bold, inline code, bullet lists, paragraph breaks); escapes HTML first
+// since message content ultimately comes from an LLM and shouldn't be
+// trusted as markup.
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function inlineMarkdown(s) {
+  return s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function renderMarkdownLite(text) {
+  const lines = escapeHtml(text).split("\n");
+  let html = "";
+  let inList = false;
+  for (const line of lines) {
+    const bulletMatch = line.match(/^\s*[-*]\s+(.*)/);
+    if (bulletMatch) {
+      if (!inList) { html += "<ul>"; inList = true; }
+      html += `<li>${inlineMarkdown(bulletMatch[1])}</li>`;
+      continue;
+    }
+    if (inList) { html += "</ul>"; inList = false; }
+    html += line.trim() === "" ? "<br/>" : `<p>${inlineMarkdown(line)}</p>`;
+  }
+  if (inList) html += "</ul>";
+  return html;
+}
+
 function renderChatLog() {
   const history = currentHistory();
   chatLog.innerHTML = "";
   for (const msg of history) {
     const div = document.createElement("div");
     div.className = "chat-msg " + msg.role;
-    div.textContent = msg.content;
+    div.innerHTML = renderMarkdownLite(msg.content);
     chatLog.appendChild(div);
   }
   chatLog.scrollTop = chatLog.scrollHeight;
