@@ -84,7 +84,7 @@ Scope: influencer discovery, qualification, drafting, review, follow-up, negotia
 
 ## 6. Negotiation & Pricing
 
-*(Now reflected in the codebase — see `src/pricing/cpm-calculator.ts`, `src/mastra/agents/negotiation-agent.ts`, and the negotiation-state fields in `src/tracking/outreach-log.ts` — though the `relationshipType`/`dealType`/`cpmRate`/`viewCap`/`monitoringDays` fields have no writer yet in the CLI/web close flows; see the cross-reference section below.)*
+*(Now reflected in the codebase — see `src/pricing/cpm-calculator.ts`, `src/mastra/agents/negotiation-agent.ts`, and the negotiation-state fields in `src/tracking/outreach-log.ts`. Deal type/CPM/cap/monitoring days are prompted for on close in both the CLI (`run-negotiate.ts`) and web negotiate flows, and `npm run set-relationship` marks a creator exclusive — see the cross-reference section below.)*
 
 ### Pricing fundamentals
 
@@ -146,10 +146,10 @@ The following is a rough mapping against the current codebase (`src/mastra/tools
 - Daily send-volume pacing/quota on the Gmail side, and a hard duplicate-send guard (Section 7, partially).
 - CPM calculation and pricing benchmarks, negotiation psychology/scripting (never-accept-round-1, low anchor, dealbreaker framing, long-term-partnership framing), flat/CPM/hybrid deal-structure proposals, and agency-negotiation service-trade framing (Section 6) — `src/pricing/cpm-calculator.ts`, `src/mastra/agents/negotiation-agent.ts`, `src/mastra/agents/supervisor-agent.ts` rule 20.
 - Post-close relationship-management flow: timeline-setting on close, `npm run checkins` for the actual check-in send, and inbound-neediness-signal detection on closed threads feeding into a repricing-conversation flag (Section 7) — `src/run-checkins.ts`, `getCheckInsDue`/`getNeedinessSignals`/`scanClosedThreadsForInboundActivity`.
+- Deal-structure and exclusivity recording — `dealType`/`cpmRate`/`viewCap`/`monitoringDays` are now prompted for on close in both `run-negotiate.ts` and the web negotiate flow, and `npm run set-relationship` is the writer for `relationshipType`/`commissionPct`, so `getExclusivityCandidates` no longer flags a signed-exclusive creator forever.
+- Tracking-sheet-style qualitative rating field per creator (Section 1) — `npm run rate-creator` / `setCreatorRating`, surfaced in the Found Candidates Excel sheet's Rating column.
 
 **Not yet implemented / genuinely new territory:**
 - Audience-demographics qualification (country/age purchase-power checks) — not automatable from the YouTube Data API directly, would require manually-supplied media-kit data or a new data source; a free-text audience note is checked for golden-country mentions (`src/utils/audience-check.ts`) but this is a manual-entry signal, not automated qualification.
-- Deal-structure and exclusivity recording — `relationshipType`, `dealType`, `cpmRate`, `viewCap`, and `monitoringDays` exist as `NegotiationState` fields but have no writer anywhere in the CLI or web close flows yet, so a deal that actually closes on CPM/hybrid terms, or a creator who's actually signed exclusively, is never recorded as such; `getExclusivityCandidates` will keep flagging a 2+-deal creator indefinitely until this is built.
 - Cross-niche brand-upselling logic (Section 6) — depends on the not-yet-built brand-discovery half of the pipeline.
-- Tracking-sheet-style qualitative rating field per creator (Section 1) — `outreach-log.json` logs contact history but has no quality/rating field.
 - YouTube email-lookup-limit mitigations (separate prospecting account, incognito, IP variation) — not applicable in the same way since discovery here is fully API-driven rather than manual browser lookups, but the underlying daily-cap concept is already handled via `youtube-quota.ts`.

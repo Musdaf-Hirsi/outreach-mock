@@ -7,7 +7,7 @@ import { sanitizeHumanText } from "../../utils/sanitize-text";
 import { getAllContactedCreators, getFollowUpQueue, getLastSendInfo, getNegotiationState } from "../../tracking/outreach-log";
 import { getLastReplyBody } from "../../gmail/check-replies";
 import { computeBaselineViews, evaluateQuote, estimateFairPrice } from "../../pricing/cpm-calculator";
-import { findInfluencersTool } from "./find-influencers-tool";
+import { findInfluencersTool, foundCandidateSchema, skippedCandidateSchema } from "./find-influencers-tool";
 import { runTool } from "../../utils/run-tool";
 import { expandNiche } from "../niche-keywords";
 import { syncTrackingSheetIfConfigured } from "../../tracking/google-sheet-sync";
@@ -286,39 +286,30 @@ export const findCandidatesForNicheTool = createTool({
     searchedKeywords: z.array(z.string()),
     titleEchoSearches: z.array(z.string()).describe("Video titles from top early results that were re-searched as exact phrases (step 2 of the course method)"),
     failedKeywords: z.array(z.string()).describe("Keywords that errored out (e.g. transient API failure) and were skipped, not silently dropped"),
-    candidates: z.array(
-      z.object({
-        channelId: z.string(),
-        channelName: z.string(),
-        subscribers: z.number(),
-        avgViews: z.number(),
-        engagementRate: z.number(),
-        recentVideoTopic: z.string(),
-        contactEmail: z.string().optional(),
-        foundVia: z.string(),
-        sponsorBrandsMentioned: z.array(z.string()).describe("Real brands scanned from this creator's own video descriptions — sponsors they've already worked with, not a suggestion"),
-        suggestedBrandsToOffer: z.array(z.string()).describe("Brands seen elsewhere in this niche's pool that this creator has NOT worked with — a real (non-fabricated) starting point for the outreach offer"),
-      }),
-    ),
+    // Reuses findInfluencersTool's own candidate shape (+ foundVia) instead
+    // of a hand-picked subset — the previous CandidateAcc only carried 9 of
+    // the ~17 real fields (no alreadyContacted, postingConsistency,
+    // possibleFakeEngagement, recentVideos, contactHints.links, etc.), so
+    // the web UI's deep-search results silently lost all of that on the way
+    // through, even though the underlying searches computed it fine.
+    candidates: z.array(foundCandidateSchema.extend({ foundVia: z.string() })),
+    // Aggregated across every inner search in the sweep — previously
+    // dropped entirely (deep search always returned skipped: []), so the
+    // evaluated/passed breakdown UI never rendered for it.
+    skipped: z.array(skippedCandidateSchema),
+    skippedAlreadyFound: z.number(),
+    skippedRecentlyRejected: z.number(),
   }),
   execute: async ({ context }) => {
-    interface CandidateAcc {
-      channelId: string;
-      channelName: string;
-      subscribers: number;
-      avgViews: number;
-      engagementRate: number;
-      recentVideoTopic: string;
-      contactEmail: string | undefined;
-      foundVia: string;
-      sponsorBrandsMentioned: string[];
-      suggestedBrandsToOffer: string[];
-    }
+    type CandidateAcc = z.infer<typeof foundCandidateSchema> & { foundVia: string };
 
     const keywords = await expandNiche(context.niche);
     const byChannelId = new Map<string, CandidateAcc>();
     const candidatesAcc: CandidateAcc[] = [];
     const failedKeywords: string[] = [];
+    const skippedAcc: z.infer<typeof skippedCandidateSchema>[] = [];
+    let skippedAlreadyFound = 0;
+    let skippedRecentlyRejected = 0;
 
     currentSweep = {
       niche: context.niche,
@@ -362,21 +353,13 @@ export const findCandidatesForNicheTool = createTool({
 
       for (const r of result.results) {
         if (byChannelId.has(r.channelId)) continue;
-        const entry: CandidateAcc = {
-          channelId: r.channelId,
-          channelName: r.channelName,
-          subscribers: r.subscribers,
-          avgViews: r.avgViews,
-          engagementRate: r.engagementRate,
-          recentVideoTopic: r.recentVideoTopic,
-          contactEmail: r.contactHints.emails[0],
-          foundVia,
-          sponsorBrandsMentioned: r.sponsorBrandsMentioned,
-          suggestedBrandsToOffer: r.suggestedBrandsToOffer,
-        };
+        const entry: CandidateAcc = { ...r, foundVia };
         byChannelId.set(r.channelId, entry);
         candidatesAcc.push(entry);
       }
+      skippedAcc.push(...result.skipped);
+      skippedAlreadyFound += result.skippedAlreadyFound;
+      skippedRecentlyRejected += result.skippedRecentlyRejected;
     }
 
     for (const keyword of keywords) {
@@ -410,6 +393,9 @@ export const findCandidatesForNicheTool = createTool({
       titleEchoSearches,
       failedKeywords,
       candidates: candidatesAcc,
+      skipped: skippedAcc,
+      skippedAlreadyFound,
+      skippedRecentlyRejected,
     };
   },
 });

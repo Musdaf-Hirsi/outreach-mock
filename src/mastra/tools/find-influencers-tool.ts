@@ -396,6 +396,83 @@ async function scanOlderVideosForContactHints(uploadsPlaylistId: string, pageTok
   return videoData.items.map((v) => v.snippet.description ?? "");
 }
 
+// Extracted so callers (find-candidates-for-niche's sweep) can reuse the
+// exact shape a candidate comes back in, instead of hand-copying a subset
+// of fields into their own accumulator type — that's exactly how the sweep
+// used to lose alreadyContacted/postingConsistency/skipped-reasons/etc. on
+// its way into the web UI's deep-search results.
+export const foundCandidateSchema = z.object({
+  channelName: z.string(),
+  niche: z.string(),
+  subscribers: z.number(),
+  avgViews: z.number(),
+  engagementRate: z.number(),
+  recentVideoTopic: z.string(),
+  channelId: z.string(),
+  // YouTube channel IDs can contain underscores, which are invalid in an
+  // email domain — pre-building a guaranteed-valid placeholder here means
+  // the agent never has to construct one itself and risk breaking it.
+  placeholderEmail: z.string().email(),
+  // Channel's public About page — where a human does the manual email
+  // lookup (lesson 050) when no auto-found email/link exists.
+  aboutUrl: z.string(),
+  // YouTube's API never exposes a creator's private business email
+  // directly, but public channel/video descriptions sometimes contain
+  // one, or a linktree/website — scanned here from data the creator
+  // chose to publish, not scraped from any gated page.
+  contactHints: z.object({
+    emails: z.array(z.string()),
+    links: z.array(z.string()),
+  }),
+  recentVideos: z.array(
+    z.object({
+      title: z.string(),
+      views: z.number(),
+      likes: z.number(),
+      comments: z.number(),
+      engagementRate: z.number(),
+    }),
+  ),
+  // Prevents re-emailing the same creator across separate runs, since
+  // each `npm run dev` invocation otherwise starts with no memory.
+  alreadyContacted: z.boolean(),
+  lastContactedAt: z.string().optional(),
+  // Course qualification dimensions (see "How to Qualify Influencers")
+  // computed from data already pulled above — no extra API calls.
+  postingConsistency: z.enum(["consistent", "sporadic", "unknown"]),
+  daysSinceLastUpload: z.number().nullable(),
+  possibleFakeEngagement: z.boolean().describe(
+    "Suspiciously low comment-to-view ratio despite decent-looking overall engagement — the course's " +
+      "bought/fake-engagement tell (likes are cheap to fake at scale, real comments are not).",
+  ),
+  inconsistentViews: z.boolean().describe(
+    "Wildly fluctuating view counts across recent videos (one viral hit, everything else flat, or vice " +
+      "versa) — the course's reliability red flag distinct from average engagement; informational only, " +
+      "never auto-excludes a candidate.",
+  ),
+  emailAmbiguous: z.boolean().describe(
+    "Multiple emails were found in this channel's public descriptions on different domains with no clear " +
+      "signal for which belongs to the creator (vs. a sponsor/editor/manager) — worth a manual glance " +
+      "before trusting contactHints.emails[0].",
+  ),
+  engagementThresholdApplied: z.number().describe("The actual engagement-rate bar this candidate was filtered against"),
+  // Course technique ("How to Message Influencers" offer section):
+  // brands mentioned as sponsors in this candidate's own video
+  // descriptions, and 1-2 brands seen elsewhere in this niche's
+  // candidate pool that this creator has NOT worked with — a ready
+  // starting point for the email's offer instead of a vague "perfect
+  // fit" claim or a fabricated "we have brands" lie.
+  sponsorBrandsMentioned: z.array(z.string()),
+  suggestedBrandsToOffer: z.array(z.string()),
+});
+
+export const skippedCandidateSchema = z.object({
+  channelId: z.string(),
+  channelName: z.string(),
+  subscribers: z.number(),
+  reason: z.string(),
+});
+
 export const findInfluencersTool = createTool({
   id: "find-influencers",
   description:
@@ -463,72 +540,7 @@ export const findInfluencersTool = createTool({
       ),
   }),
   outputSchema: z.object({
-    results: z.array(
-      z.object({
-        channelName: z.string(),
-        niche: z.string(),
-        subscribers: z.number(),
-        avgViews: z.number(),
-        engagementRate: z.number(),
-        recentVideoTopic: z.string(),
-        channelId: z.string(),
-        // YouTube channel IDs can contain underscores, which are invalid in an
-        // email domain — pre-building a guaranteed-valid placeholder here means
-        // the agent never has to construct one itself and risk breaking it.
-        placeholderEmail: z.string().email(),
-        // Channel's public About page — where a human does the manual email
-        // lookup (lesson 050) when no auto-found email/link exists.
-        aboutUrl: z.string(),
-        // YouTube's API never exposes a creator's private business email
-        // directly, but public channel/video descriptions sometimes contain
-        // one, or a linktree/website — scanned here from data the creator
-        // chose to publish, not scraped from any gated page.
-        contactHints: z.object({
-          emails: z.array(z.string()),
-          links: z.array(z.string()),
-        }),
-        recentVideos: z.array(
-          z.object({
-            title: z.string(),
-            views: z.number(),
-            likes: z.number(),
-            comments: z.number(),
-            engagementRate: z.number(),
-          }),
-        ),
-        // Prevents re-emailing the same creator across separate runs, since
-        // each `npm run dev` invocation otherwise starts with no memory.
-        alreadyContacted: z.boolean(),
-        lastContactedAt: z.string().optional(),
-        // Course qualification dimensions (see "How to Qualify Influencers")
-        // computed from data already pulled above — no extra API calls.
-        postingConsistency: z.enum(["consistent", "sporadic", "unknown"]),
-        daysSinceLastUpload: z.number().nullable(),
-        possibleFakeEngagement: z.boolean().describe(
-          "Suspiciously low comment-to-view ratio despite decent-looking overall engagement — the course's " +
-            "bought/fake-engagement tell (likes are cheap to fake at scale, real comments are not).",
-        ),
-        inconsistentViews: z.boolean().describe(
-          "Wildly fluctuating view counts across recent videos (one viral hit, everything else flat, or vice " +
-            "versa) — the course's reliability red flag distinct from average engagement; informational only, " +
-            "never auto-excludes a candidate.",
-        ),
-        emailAmbiguous: z.boolean().describe(
-          "Multiple emails were found in this channel's public descriptions on different domains with no clear " +
-            "signal for which belongs to the creator (vs. a sponsor/editor/manager) — worth a manual glance " +
-            "before trusting contactHints.emails[0].",
-        ),
-        engagementThresholdApplied: z.number().describe("The actual engagement-rate bar this candidate was filtered against"),
-        // Course technique ("How to Message Influencers" offer section):
-        // brands mentioned as sponsors in this candidate's own video
-        // descriptions, and 1-2 brands seen elsewhere in this niche's
-        // candidate pool that this creator has NOT worked with — a ready
-        // starting point for the email's offer instead of a vague "perfect
-        // fit" claim or a fabricated "we have brands" lie.
-        sponsorBrandsMentioned: z.array(z.string()),
-        suggestedBrandsToOffer: z.array(z.string()),
-      }),
-    ),
+    results: z.array(foundCandidateSchema),
     // Every channel that was actually evaluated (cost real quota) but
     // rejected, with the reason — previously this only went to logDetail
     // (terminal/viz dashboard only), so a web search that rejected
@@ -536,14 +548,16 @@ export const findInfluencersTool = createTool({
     // whether the niche is dead or 10 good channels missed one bar by a
     // hair. Lets the human apply their own judgment on borderline calls,
     // which the course explicitly wants ("develop a sniff").
-    skipped: z.array(
-      z.object({
-        channelId: z.string(),
-        channelName: z.string(),
-        subscribers: z.number(),
-        reason: z.string(),
-      }),
-    ),
+    skipped: z.array(skippedCandidateSchema),
+    // Channels that were skipped BEFORE evaluation (already on the
+    // found-not-contacted sheet, or rejected within the last 7 days) —
+    // distinct from `skipped` above, which only covers channels that were
+    // actually fetched and evaluated this run. Without these counts, a
+    // repeat search of an already-swept niche returns 0 results and 0
+    // `skipped` and reads as "this niche is empty" when the truth is
+    // "everything here was already handled."
+    skippedAlreadyFound: z.number(),
+    skippedRecentlyRejected: z.number(),
   }),
   execute: async ({ context }) => {
     const {
@@ -647,7 +661,7 @@ export const findInfluencersTool = createTool({
 
     if (channelIds.length === 0) {
       setNode("find-influencers", "done", "0 candidates found");
-      return { results: [], skipped: [] };
+      return { results: [], skipped: [], skippedAlreadyFound, skippedRecentlyRejected };
     }
 
     const channelData = await youtubeGet<{ items: YouTubeChannel[] }>("channels", {
@@ -895,7 +909,7 @@ export const findInfluencersTool = createTool({
     );
 
     setNode("find-influencers", "done", `${results.length} candidate(s) found`);
-    return { results, skipped };
+    return { results, skipped, skippedAlreadyFound, skippedRecentlyRejected };
   },
 });
 

@@ -131,31 +131,16 @@ app.get("/api/find-deep", async (req, res) => {
   }
   try {
     const sweep = await runTool(findCandidatesForNicheTool, { niche });
-    const results = sweep.candidates.map((c) => ({
-      channelName: c.channelName,
-      niche,
-      subscribers: c.subscribers,
-      avgViews: c.avgViews,
-      engagementRate: c.engagementRate,
-      recentVideoTopic: c.recentVideoTopic,
-      channelId: c.channelId,
-      placeholderEmail: c.contactEmail ?? "unknown@example.com",
-      aboutUrl: `https://www.youtube.com/channel/${c.channelId}/about`,
-      contactHints: { emails: c.contactEmail ? [c.contactEmail] : [], links: [] },
-      recentVideos: [],
-      alreadyContacted: false,
-      postingConsistency: "unknown" as const,
-      daysSinceLastUpload: null,
-      possibleFakeEngagement: false,
-      inconsistentViews: false,
-      emailAmbiguous: false,
-      engagementThresholdApplied: 0.03,
-      sponsorBrandsMentioned: c.sponsorBrandsMentioned,
-      suggestedBrandsToOffer: c.suggestedBrandsToOffer,
-    }));
+    // findCandidatesForNicheTool's candidates are already the real
+    // findInfluencersTool result shape (+ foundVia) — no reconstruction
+    // needed, so alreadyContacted/postingConsistency/recentVideos/etc. (and
+    // the skipped list + pre-filter counts) all survive into the web UI
+    // instead of being silently dropped on the way through.
     res.json({
-      results,
-      skipped: [],
+      results: sweep.candidates,
+      skipped: sweep.skipped,
+      skippedAlreadyFound: sweep.skippedAlreadyFound,
+      skippedRecentlyRejected: sweep.skippedRecentlyRejected,
       searchedKeywords: sweep.searchedKeywords,
       titleEchoSearches: sweep.titleEchoSearches,
       failedKeywords: sweep.failedKeywords,

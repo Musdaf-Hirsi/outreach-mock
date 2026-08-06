@@ -744,6 +744,16 @@ async function runNicheSearch(url, niche, btn, busyLabel, idleLabel, pollProgres
     if (data.searchedKeywords) {
       metaHtml += `<p class="card-meta">Searched ${data.searchedKeywords.length} long-tail keyword(s)${data.titleEchoSearches?.length ? ` + ${data.titleEchoSearches.length} title-echo search(es)` : ""}${data.failedKeywords?.length ? ` — ${data.failedKeywords.length} failed` : ""}</p>`;
     }
+    // These are channels skipped BEFORE evaluation (already on the sheet,
+    // or rejected within the last 7 days) — without this line, a repeat
+    // search of an already-swept niche shows "0 evaluated, 0 skipped" and
+    // reads as an empty niche when it's actually already fully handled.
+    if (data.skippedAlreadyFound || data.skippedRecentlyRejected) {
+      const parts = [];
+      if (data.skippedAlreadyFound) parts.push(`${data.skippedAlreadyFound} already on your sheet`);
+      if (data.skippedRecentlyRejected) parts.push(`${data.skippedRecentlyRejected} rejected within the last 7 days`);
+      metaHtml += `<p class="card-meta">Also skipped before evaluation: ${parts.join(" · ")}</p>`;
+    }
 
     if (data.results.length === 0) {
       resultsEl.innerHTML = `<p class="empty">No candidates passed the filters for "${niche}".</p>${metaHtml}`;
