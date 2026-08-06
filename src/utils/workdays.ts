@@ -36,10 +36,10 @@ export function workdayGapForFollowUpNumber(followUpNumber: number): number {
   return WORKDAY_GAPS[Math.min(followUpNumber - 1, WORKDAY_GAPS.length - 1)];
 }
 
-// Advances `from` by `workdays` business days, then applies the
-// Friday-afternoon rule: if the send would otherwise land on Friday evening
-// (day 5) or Monday, push it to Tuesday so it doesn't hit right after the
-// weekend when nobody reads outreach email.
+// Advances `from` by `workdays` business days, then applies two landing-day
+// rules: if the send would otherwise land on Friday evening (day 5) or
+// Monday, push it to Tuesday so it doesn't hit right after the weekend when
+// nobody reads outreach email.
 export function nextFollowUpDate(from: Date, followUpNumber: number): Date {
   const gap = workdayGapForFollowUpNumber(followUpNumber);
   let date = new Date(from);
@@ -55,6 +55,18 @@ export function nextFollowUpDate(from: Date, followUpNumber: number): Date {
     // has passed and Monday is hectic anyway, so wait one more day.
     date = addDays(date, 1);
   }
+
+  // Course rule (FAQ / follow-ups lesson): don't land a follow-up on a
+  // Friday at all — "last day before the weekend, leave me alone" — Tue/Thu
+  // are called out as the better days. The check above only ever caught a
+  // Friday-*send* rolling onto Monday; it never checked whether the
+  // computed follow-up date itself is a Friday regardless of what day the
+  // original send happened. A Thursday send with a 1-workday gap, for
+  // example, landed the follow-up on Friday unchecked before this.
+  if (date.getDay() === 5) {
+    date = addDays(date, 4); // Friday -> Sat -> Sun -> Mon -> Tuesday
+  }
+
   return date;
 }
 

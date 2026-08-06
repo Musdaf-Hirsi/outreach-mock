@@ -3,7 +3,7 @@ import readline from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { followupAgent } from "./mastra/agents/followup-agent";
 import { sendEmailTool } from "./mastra/tools/send-email-tool";
-import { getCheckInsDue, getLastSendInfo, recordCheckIn } from "./tracking/outreach-log";
+import { getCheckInsDue, getLastSendInfo, recordCheckIn, NEEDINESS_THRESHOLD } from "./tracking/outreach-log";
 import { sanitizeHumanText } from "./utils/sanitize-text";
 import { runTool } from "./utils/run-tool";
 import { scanClosedThreadsForInboundActivity } from "./gmail/check-replies";
@@ -32,7 +32,7 @@ async function main() {
     if (activity.length > 0) {
       console.log(`\n=== Post-close activity detected ===`);
       for (const a of activity) {
-        const flag = a.totalInboundCheckIns >= 3 ? "  ← neediness signal, consider a repricing conversation" : "";
+        const flag = a.totalInboundCheckIns >= NEEDINESS_THRESHOLD ? "  ← neediness signal, consider a repricing conversation" : "";
         console.log(`  - ${a.channelName}: ${a.newMessageCount} new message(s) (${a.totalInboundCheckIns} total since close)${flag}`);
       }
       console.log("");

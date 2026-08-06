@@ -21,14 +21,28 @@ function todayKey(): string {
 
 function loadState(): QuotaState {
   if (fs.existsSync(QUOTA_FILE)) {
-    const state = JSON.parse(fs.readFileSync(QUOTA_FILE, "utf-8")) as QuotaState;
+    let state: QuotaState;
+    try {
+      state = JSON.parse(fs.readFileSync(QUOTA_FILE, "utf-8")) as QuotaState;
+    } catch {
+      // A truncated/corrupted quota file (crash mid-write) used to throw a
+      // raw JSON.parse error here and take down every YouTube call. This
+      // file resets daily anyway, so a corrupted read is safe to treat as
+      // "start the day over" rather than a hard failure.
+      return { date: todayKey(), unitsUsed: 0 };
+    }
     if (state.date === todayKey()) return state;
   }
   return { date: todayKey(), unitsUsed: 0 };
 }
 
+// Write to a temp file then rename over the real one — rename is atomic on
+// the same filesystem, so a crash mid-write can't leave a truncated file
+// for the next loadState() call to choke on.
 function saveState(state: QuotaState) {
-  fs.writeFileSync(QUOTA_FILE, JSON.stringify(state, null, 2));
+  const tmpFile = `${QUOTA_FILE}.tmp`;
+  fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2));
+  fs.renameSync(tmpFile, QUOTA_FILE);
 }
 
 export async function consumeQuota(units: number): Promise<void> {

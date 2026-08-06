@@ -78,8 +78,14 @@ export const agencyStatusTool = createTool({
     const queue = getFollowUpQueue();
     const checkIns = getCheckInsDue();
     const creators = getAllContactedCreators();
-    const contactedNames = new Set(creators.map((c) => c.channelName));
-    const found = getAllFoundCandidatesDeduped().filter((c) => !contactedNames.has(c.channelName));
+    // Match by channelId, not channelName — a renamed channel, or two
+    // different channels that happen to share a display name, silently
+    // broke this when it matched on name (a contacted creator could keep
+    // showing up in "found but not contacted," or an unrelated found
+    // candidate could get hidden because it shares a name with someone
+    // already contacted).
+    const contactedIds = new Set(creators.map((c) => c.channelId));
+    const found = getAllFoundCandidatesDeduped().filter((c) => !contactedIds.has(c.channelId));
     const exclusivityCandidates = getExclusivityCandidates();
     const needinessSignals = getNeedinessSignals();
 

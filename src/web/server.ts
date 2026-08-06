@@ -3,7 +3,8 @@ import crypto from "node:crypto";
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findInfluencersTool } from "../mastra/tools/find-influencers-tool";
+import { findInfluencersTool, evaluateChannelTool } from "../mastra/tools/find-influencers-tool";
+import { findCandidatesForNicheTool, getSweepProgress } from "../mastra/tools/delegate-tools";
 import { draftingAgent } from "../mastra/agents/drafting-agent";
 import { supervisorAgent } from "../mastra/agents/supervisor-agent";
 import { senderAgent } from "../mastra/agents/sender-agent";
@@ -81,6 +82,8 @@ app.get("/api/find", async (req, res) => {
     res.status(400).json({ error: "niche is required" });
     return;
   }
+  const uploadedWithinDaysRaw = req.query.uploadedWithinDays;
+  const uploadedWithinDays = uploadedWithinDaysRaw ? Number(uploadedWithinDaysRaw) : undefined;
   try {
     const result = await runTool(findInfluencersTool, {
       niche,
@@ -97,10 +100,100 @@ app.get("/api/find", async (req, res) => {
       // results it returns, so there's no real cost to asking for more.
       maxCandidates: 20,
       videosPerChannel: 10,
+      // Course technique (URL-date-filter trick): the web UI's "recent
+      // uploads only" toggle biases results toward fresh, smaller channels
+      // instead of the same evergreen big names. Previously plumbed all the
+      // way through the tool but never actually passed by any caller.
+      uploadedWithinDays,
     });
     res.json(result);
     // Fire-and-forget: the response already went out, this just keeps the
     // shared Google Sheet current for whoever has that link open.
+    void syncTrackingSheetIfConfigured();
+  } catch (err: any) {
+    res.status(500).json({ error: err.message ?? String(err) });
+  }
+});
+
+// The full course method (long-tail keyword expansion -> intitle: sweep ->
+// copy-a-found-title-and-search-again) previously only ran through the
+// manager agent's chat tool — typing a niche into this quick search box
+// only ever ran one single search of exactly what was typed, which is
+// precisely the broad-keyword/big-names-resurface problem the course's
+// long-tail technique exists to solve. This runs the real sweep and
+// reshapes its output into the same shape /api/find returns, so the
+// existing results renderer works unchanged.
+app.get("/api/find-deep", async (req, res) => {
+  const niche = String(req.query.niche ?? "");
+  if (!niche.trim()) {
+    res.status(400).json({ error: "niche is required" });
+    return;
+  }
+  try {
+    const sweep = await runTool(findCandidatesForNicheTool, { niche });
+    const results = sweep.candidates.map((c) => ({
+      channelName: c.channelName,
+      niche,
+      subscribers: c.subscribers,
+      avgViews: c.avgViews,
+      engagementRate: c.engagementRate,
+      recentVideoTopic: c.recentVideoTopic,
+      channelId: c.channelId,
+      placeholderEmail: c.contactEmail ?? "unknown@example.com",
+      aboutUrl: `https://www.youtube.com/channel/${c.channelId}/about`,
+      contactHints: { emails: c.contactEmail ? [c.contactEmail] : [], links: [] },
+      recentVideos: [],
+      alreadyContacted: false,
+      postingConsistency: "unknown" as const,
+      daysSinceLastUpload: null,
+      possibleFakeEngagement: false,
+      inconsistentViews: false,
+      emailAmbiguous: false,
+      engagementThresholdApplied: 0.03,
+      sponsorBrandsMentioned: c.sponsorBrandsMentioned,
+      suggestedBrandsToOffer: c.suggestedBrandsToOffer,
+    }));
+    res.json({
+      results,
+      skipped: [],
+      searchedKeywords: sweep.searchedKeywords,
+      titleEchoSearches: sweep.titleEchoSearches,
+      failedKeywords: sweep.failedKeywords,
+    });
+    void syncTrackingSheetIfConfigured();
+  } catch (err: any) {
+    res.status(500).json({ error: err.message ?? String(err) });
+  }
+});
+
+// Polled by the web UI while a deep search is in flight — a full sweep is
+// 40+ searches and takes several minutes with no other feedback otherwise.
+app.get("/api/find-deep-progress", (_req, res) => {
+  res.json(getSweepProgress() ?? { phase: "idle" });
+});
+
+// Bridges the course's manual browsing method (sidebar suggestions,
+// Instagram "Tagged" checks, incognito sessions) into the app: paste
+// whatever channel URL/handle you found by hand and get it run through the
+// same qualification pipeline as a search result, without needing to know
+// its channelId or spend a 100-unit search.list call.
+app.post("/api/evaluate", async (req, res) => {
+  const { channelInput, niche } = req.body ?? {};
+  if (!channelInput || !String(channelInput).trim()) {
+    res.status(400).json({ error: "channelInput is required" });
+    return;
+  }
+  try {
+    const result = await runTool(evaluateChannelTool, {
+      channelInput: String(channelInput).trim(),
+      niche: niche && String(niche).trim() ? String(niche).trim() : undefined,
+      minSubscribers: 50_000,
+      maxSubscribers: 500_000,
+      minEngagementRate: 0.01,
+      minAvgViews: 50_000,
+      videosPerChannel: 10,
+    });
+    res.json(result);
     void syncTrackingSheetIfConfigured();
   } catch (err: any) {
     res.status(500).json({ error: err.message ?? String(err) });
@@ -485,7 +578,8 @@ app.post("/api/negotiate/draft", async (req, res) => {
 });
 
 app.post("/api/negotiate/send", async (req, res) => {
-  const { channelId, channelName, niche, to, body, quotedPrice, action, gmailThreadId, rfcMessageId } = req.body ?? {};
+  const { channelId, channelName, niche, to, body, quotedPrice, action, gmailThreadId, rfcMessageId, dealType, cpmRate, viewCap, monitoringDays } =
+    req.body ?? {};
   if (!channelId || !to || !body) {
     res.status(400).json({ error: "channelId, to, and body are required" });
     return;
@@ -504,10 +598,18 @@ app.post("/api/negotiate/send", async (req, res) => {
     });
     if (sendResult.status === "sent") {
       const dealStatus = action === "accept" ? "closed" : action === "walk_away" ? "declined" : "negotiating";
+      // Course technique ("CPM vs Straight"): what the deal actually closed
+      // on — only meaningful (and only sent by the UI) when dealStatus is
+      // "closed"; recordNegotiationRound falls back to whatever was already
+      // on file for any field left undefined here.
       const state = await recordNegotiationRound(channelId, {
         channelName,
         quotedPrice: quotedPrice ? Number(quotedPrice) : undefined,
         dealStatus,
+        dealType: dealStatus === "closed" && dealType ? dealType : undefined,
+        cpmRate: cpmRate ? Number(cpmRate) : undefined,
+        viewCap: viewCap ? Number(viewCap) : undefined,
+        monitoringDays: monitoringDays ? Number(monitoringDays) : undefined,
       });
       // Course rule ("Closed an influencer, now what?"): "closed" isn't
       // just a reply saying yes — it means pricing and audience info are

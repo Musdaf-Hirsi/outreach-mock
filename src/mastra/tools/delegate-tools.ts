@@ -245,6 +245,28 @@ export const draftReplyForCreatorTool = createTool({
 // videos and copy titles by hand.
 const TITLE_ECHO_ROUNDS = 5;
 
+// A full sweep is 40+ searches with a per-call delay — several minutes of
+// dead air for whoever's watching the web UI's "Deep search" button, with
+// no way to tell if it's working or stuck. This is a simple in-memory
+// snapshot (not persisted — a page refresh mid-sweep just stops seeing
+// updates, which is fine) that the web server polls via a GET endpoint,
+// rather than standing up a WebSocket channel just for one progress bar.
+export interface SweepProgress {
+  niche: string;
+  phase: "keywords" | "title-echo" | "done";
+  completed: number;
+  total: number;
+  currentQuery: string;
+  candidatesSoFar: number;
+  startedAt: string;
+}
+
+let currentSweep: SweepProgress | null = null;
+
+export function getSweepProgress(): SweepProgress | null {
+  return currentSweep;
+}
+
 export const findCandidatesForNicheTool = createTool({
   id: "find-candidates-for-niche",
   description:
@@ -266,10 +288,12 @@ export const findCandidatesForNicheTool = createTool({
     failedKeywords: z.array(z.string()).describe("Keywords that errored out (e.g. transient API failure) and were skipped, not silently dropped"),
     candidates: z.array(
       z.object({
+        channelId: z.string(),
         channelName: z.string(),
         subscribers: z.number(),
         avgViews: z.number(),
         engagementRate: z.number(),
+        recentVideoTopic: z.string(),
         contactEmail: z.string().optional(),
         foundVia: z.string(),
         sponsorBrandsMentioned: z.array(z.string()).describe("Real brands scanned from this creator's own video descriptions — sponsors they've already worked with, not a suggestion"),
@@ -291,16 +315,33 @@ export const findCandidatesForNicheTool = createTool({
       suggestedBrandsToOffer: string[];
     }
 
-    const keywords = expandNiche(context.niche);
+    const keywords = await expandNiche(context.niche);
     const byChannelId = new Map<string, CandidateAcc>();
     const candidatesAcc: CandidateAcc[] = [];
     const failedKeywords: string[] = [];
 
-    async function runSearch(query: string, searchMode: "intitle" | "quotes", foundVia: string) {
+    currentSweep = {
+      niche: context.niche,
+      phase: "keywords",
+      completed: 0,
+      total: keywords.length,
+      currentQuery: "",
+      candidatesSoFar: 0,
+      startedAt: new Date().toISOString(),
+    };
+
+    // `niche` on findInfluencersTool used to be given the search phrase
+    // itself (a long-tail keyword, or a title-echoed video title) — that
+    // then got written into found-candidates.json / the tracking sheet /
+    // the CPM benchmark lookup as if it were the real niche. searchQuery
+    // now carries the actual search text; niche stays the real top-level
+    // niche the user asked for on every search in this sweep.
+    async function runSearch(searchQuery: string, searchMode: "intitle" | "quotes", foundVia: string) {
       let result: Awaited<ReturnType<typeof findInfluencersTool.execute>>;
       try {
         result = await runTool(findInfluencersTool, {
-          niche: query,
+          niche: context.niche,
+          searchQuery,
           minSubscribers: 50_000,
           maxSubscribers: 500_000,
           minEngagementRate: 0.01,
@@ -315,7 +356,7 @@ export const findCandidatesForNicheTool = createTool({
         // they'd already found, were lost along with it. Skip just this
         // one and keep going; report it as failed rather than silently
         // dropping it.
-        failedKeywords.push(query);
+        failedKeywords.push(searchQuery);
         return;
       }
 
@@ -339,7 +380,9 @@ export const findCandidatesForNicheTool = createTool({
     }
 
     for (const keyword of keywords) {
+      currentSweep = { ...currentSweep, phase: "keywords", currentQuery: keyword, candidatesSoFar: candidatesAcc.length };
       await runSearch(keyword, "intitle", keyword);
+      currentSweep = { ...currentSweep, completed: currentSweep.completed + 1, candidatesSoFar: candidatesAcc.length };
     }
 
     // Step 2: copy the title from the strongest early results and search it
@@ -348,20 +391,25 @@ export const findCandidatesForNicheTool = createTool({
     // peers, rather than an arbitrary early match.
     const titleEchoSearches: string[] = [];
     const topByEngagement = [...candidatesAcc].sort((a, b) => b.engagementRate - a.engagementRate).slice(0, TITLE_ECHO_ROUNDS);
+    currentSweep = { ...currentSweep, phase: "title-echo", completed: 0, total: topByEngagement.length };
     for (const candidate of topByEngagement) {
       if (!candidate.recentVideoTopic || titleEchoSearches.includes(candidate.recentVideoTopic)) continue;
+      currentSweep = { ...currentSweep, currentQuery: candidate.recentVideoTopic, candidatesSoFar: candidatesAcc.length };
       titleEchoSearches.push(candidate.recentVideoTopic);
       await runSearch(candidate.recentVideoTopic, "quotes", `similar to "${candidate.recentVideoTopic}" (${candidate.channelName})`);
+      currentSweep = { ...currentSweep, completed: currentSweep.completed + 1, candidatesSoFar: candidatesAcc.length };
     }
 
     await syncTrackingSheetIfConfigured();
+
+    currentSweep = { ...currentSweep, phase: "done", candidatesSoFar: candidatesAcc.length };
 
     return {
       count: candidatesAcc.length,
       searchedKeywords: keywords,
       titleEchoSearches,
       failedKeywords,
-      candidates: candidatesAcc.map(({ channelId, recentVideoTopic, ...rest }) => rest),
+      candidates: candidatesAcc,
     };
   },
 });

@@ -25,8 +25,16 @@ export interface FoundCandidateEntry {
   recentVideoTopic: string;
   postingConsistency: "consistent" | "sporadic" | "unknown";
   possibleFakeEngagement: boolean;
+  // Absent on entries logged before this field existed — treat as "unknown"
+  // (blank), not "just uploaded." Course tracking-sheet column.
+  daysSinceLastUpload?: number | null;
+  // Course pricing/qualification red flag: wildly fluctuating view counts
+  // across recent videos — informational, was never used to exclude a
+  // candidate from this list.
+  inconsistentViews?: boolean;
   contactEmail?: string; // first auto-found real email, if any
   contactLink?: string; // first auto-found link (linktree/website), if any
+  aboutUrl?: string; // channel's public About page — where email lookup happens if none was auto-found
   // Real brand names scanned from this creator's own video descriptions
   // ("sponsored by X", "in partnership with X", etc.) — existing sponsors
   // they've actually worked with, not a suggestion. A creator with several
@@ -39,11 +47,30 @@ export interface FoundCandidateEntry {
 
 function loadStore(): FoundCandidateEntry[] {
   if (!fs.existsSync(STORE_FILE)) return [];
-  return JSON.parse(fs.readFileSync(STORE_FILE, "utf-8"));
+  const raw = fs.readFileSync(STORE_FILE, "utf-8");
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    // Same failure mode outreach-log.ts used to have: a crash mid-write
+    // (before the atomic-rename fix below existed) could truncate this
+    // file, and a raw JSON.parse error here used to take down every
+    // caller, including read-only ones like the status tool.
+    throw new Error(
+      `${STORE_FILE} is corrupted and can't be parsed as JSON (${(err as Error).message}). ` +
+        `If a recent run crashed mid-write, check for a .tmp file next to it or restore from a backup — ` +
+        `this file is not safe to auto-repair.`,
+    );
+  }
 }
 
+// Write to a temp file then rename over the real one — rename is atomic on
+// the same filesystem, so a crash mid-write leaves either the old complete
+// file or the new complete file, never a half-written one that the next
+// loadStore() call chokes on.
 function saveStore(entries: FoundCandidateEntry[]) {
-  fs.writeFileSync(STORE_FILE, JSON.stringify(entries, null, 2));
+  const tmpFile = `${STORE_FILE}.tmp`;
+  fs.writeFileSync(tmpFile, JSON.stringify(entries, null, 2));
+  fs.renameSync(tmpFile, STORE_FILE);
 }
 
 export async function logFoundCandidates(entries: FoundCandidateEntry[]): Promise<void> {

@@ -213,6 +213,18 @@
 
   .empty { color: var(--text-dim); font-size: 0.88rem; }
 
+  .skipped-box { color: var(--text-dim); font-size: 0.83rem; margin-bottom: 0.7rem; }
+  .skipped-box summary { cursor: pointer; font-family: var(--mono); }
+  .skipped-box ul { margin: 0.4rem 0 0 1.1rem; padding: 0; max-height: 240px; overflow-y: auto; }
+  .skipped-box li { margin-bottom: 0.2rem; }
+
+  .checkbox-row { display: flex; align-items: center; gap: 0.4rem; font-size: 0.83rem; color: var(--text-dim); margin: 0.4rem 0 0.6rem; }
+
+  .evaluate-box { margin: 0.6rem 0 1rem; font-size: 0.88rem; }
+  .evaluate-box summary { cursor: pointer; color: var(--text-dim); }
+  .evaluate-box #evalResult ul { margin: 0.4rem 0 0 1.1rem; padding: 0; }
+  .evaluate-box #evalResult li { margin-bottom: 0.2rem; }
+
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
 
@@ -319,7 +331,19 @@
     <div class="search-row">
       <input type="text" id="niche" value="cybersecurity" placeholder='Niche or specific long-tail keyword, e.g. "SOC analyst day in the life"' />
       <button id="searchBtn">Search</button>
+      <button id="deepSearchBtn" class="secondary" title="Runs the full course method: long-tail keyword expansion, then intitle: sweep, then copy-a-found-title-and-search-again. Slower and costs more quota than Search.">Deep search</button>
     </div>
+    <label class="checkbox-row"><input type="checkbox" id="recentOnly" /> Recent uploads only (last 90 days) — surfaces fresher, smaller channels</label>
+
+    <details class="evaluate-box">
+      <summary>Evaluate a channel you already found (paste a URL, @handle, or channel ID)</summary>
+      <div class="search-row" style="margin-top:0.6rem">
+        <input type="text" id="evalInput" placeholder="https://youtube.com/@handle, or a channel ID" />
+        <input type="text" id="evalNiche" placeholder="Niche label (optional)" style="max-width:180px" />
+        <button id="evalBtn">Evaluate</button>
+      </div>
+      <div id="evalResult"></div>
+    </details>
 
     <div id="savedSection" style="display:none">
       <h2 class="section-title">Saved for later</h2>
@@ -426,6 +450,7 @@
 <script>
 const resultsEl = document.getElementById("results");
 const searchBtn = document.getElementById("searchBtn");
+const deepSearchBtn = document.getElementById("deepSearchBtn");
 const nicheInput = document.getElementById("niche");
 const progressEl = document.getElementById("progress");
 
@@ -670,22 +695,60 @@ function candidateCard(c, niche) {
   return div;
 }
 
-searchBtn.addEventListener("click", async () => {
-  const niche = nicheInput.value.trim();
-  if (!niche) return;
-
-  searchBtn.disabled = true;
-  searchBtn.textContent = "Searching…";
+async function runNicheSearch(url, niche, btn, busyLabel, idleLabel, pollProgress) {
+  btn.disabled = true;
+  btn.textContent = busyLabel;
   resultsEl.innerHTML = "";
 
+  let progressInterval;
+  if (pollProgress) {
+    progressInterval = setInterval(async () => {
+      try {
+        const p = await (await fetch("/api/find-deep-progress")).json();
+        if (p.phase === "keywords" || p.phase === "title-echo") {
+          const phaseLabel = p.phase === "keywords" ? "long-tail keywords" : "title-echo searches";
+          btn.textContent = `${phaseLabel} ${p.completed}/${p.total} · ${p.candidatesSoFar} candidate(s) so far`;
+        }
+      } catch {
+        // Progress polling failing is not worth interrupting the actual search over.
+      }
+    }, 1500);
+  }
+
   try {
-    const res = await fetch(`/api/find?niche=${encodeURIComponent(niche)}`);
+    const res = await fetch(url);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
+    const skipped = data.skipped ?? [];
+    const evaluatedCount = data.results.length + skipped.length;
+    let metaHtml = "";
+    if (skipped.length > 0) {
+      const reasonCounts = new Map();
+      for (const s of skipped) {
+        const key = s.reason.split(" — ")[0].split(",")[0];
+        reasonCounts.set(key, (reasonCounts.get(key) ?? 0) + 1);
+      }
+      const breakdown = [...reasonCounts.entries()].map(([reason, n]) => `${n} ${reason}`).join(" · ");
+      const rows = skipped
+        .map((s) => `<li>${s.channelName} (${s.subscribers.toLocaleString()} subs) — ${s.reason}</li>`)
+        .join("");
+      metaHtml = `
+        <details class="skipped-box">
+          <summary>${evaluatedCount} evaluated · ${data.results.length} passed · ${breakdown}</summary>
+          <ul>${rows}</ul>
+        </details>`;
+    } else if (evaluatedCount > 0) {
+      metaHtml = `<p class="card-meta">${evaluatedCount} evaluated · ${data.results.length} passed</p>`;
+    }
+    if (data.searchedKeywords) {
+      metaHtml += `<p class="card-meta">Searched ${data.searchedKeywords.length} long-tail keyword(s)${data.titleEchoSearches?.length ? ` + ${data.titleEchoSearches.length} title-echo search(es)` : ""}${data.failedKeywords?.length ? ` — ${data.failedKeywords.length} failed` : ""}</p>`;
+    }
+
     if (data.results.length === 0) {
-      resultsEl.innerHTML = `<p class="empty">No candidates passed the filters for "${niche}".</p>`;
+      resultsEl.innerHTML = `<p class="empty">No candidates passed the filters for "${niche}".</p>${metaHtml}`;
     } else {
+      resultsEl.innerHTML = metaHtml;
       for (const c of data.results) {
         resultsEl.appendChild(candidateCard(c, niche));
       }
@@ -693,13 +756,83 @@ searchBtn.addEventListener("click", async () => {
   } catch (err) {
     resultsEl.innerHTML = `<p class="empty">Search failed: ${err.message}</p>`;
   } finally {
-    searchBtn.disabled = false;
-    searchBtn.textContent = "Search";
+    if (progressInterval) clearInterval(progressInterval);
+    btn.disabled = false;
+    btn.textContent = idleLabel;
   }
+}
+
+searchBtn.addEventListener("click", () => {
+  const niche = nicheInput.value.trim();
+  if (!niche) return;
+  const recentOnly = document.getElementById("recentOnly").checked;
+  const url = `/api/find?niche=${encodeURIComponent(niche)}` + (recentOnly ? "&uploadedWithinDays=90" : "");
+  runNicheSearch(url, niche, searchBtn, "Searching…", "Search");
+});
+
+deepSearchBtn.addEventListener("click", () => {
+  const niche = nicheInput.value.trim();
+  if (!niche) return;
+  runNicheSearch(`/api/find-deep?niche=${encodeURIComponent(niche)}`, niche, deepSearchBtn, "Starting full sweep…", "Deep search", true);
 });
 
 nicheInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") searchBtn.click();
+});
+
+// --- Evaluate a pasted channel ------------------------------------------
+const evalInput = document.getElementById("evalInput");
+const evalNicheInput = document.getElementById("evalNiche");
+const evalBtn = document.getElementById("evalBtn");
+const evalResultEl = document.getElementById("evalResult");
+
+async function runEvaluate() {
+  const channelInput = evalInput.value.trim();
+  if (!channelInput) return;
+
+  evalBtn.disabled = true;
+  evalBtn.textContent = "Evaluating…";
+  evalResultEl.innerHTML = "";
+
+  try {
+    const res = await fetch("/api/evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channelInput, niche: evalNicheInput.value.trim() || undefined }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    if (!data.found) {
+      evalResultEl.innerHTML = `<p class="empty">${data.error ?? "Channel not found."}</p>`;
+      return;
+    }
+
+    const verdictClass = data.passed ? "ok" : "err";
+    const reasonsHtml = (data.reasons ?? []).map((r) => `<li>${r}</li>`).join("");
+    evalResultEl.innerHTML = `
+      <div class="draft-box">
+        <p class="card-meta">
+          <a href="${data.channelUrl}" target="_blank" rel="noopener">${data.channelName}</a>
+          — ${data.subscribers?.toLocaleString() ?? "?"} subs, ~${data.avgViews?.toLocaleString() ?? "?"} avg views,
+          ${data.engagementRate !== undefined ? (data.engagementRate * 100).toFixed(2) + "%" : "?"} engagement
+          ${data.alreadyContacted ? " · already contacted" : ""}
+        </p>
+        <p class="status-msg ${verdictClass}">${data.passed ? "PASSED — qualifies under current filters" : "DID NOT PASS"}</p>
+        <ul>${reasonsHtml}</ul>
+      </div>`;
+    if (data.passed) loadInfluencers();
+  } catch (err) {
+    evalResultEl.innerHTML = `<p class="empty">Evaluate failed: ${err.message}</p>`;
+  } finally {
+    evalBtn.disabled = false;
+    evalBtn.textContent = "Evaluate";
+  }
+}
+
+evalBtn.addEventListener("click", runEvaluate);
+evalInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") runEvaluate();
 });
 
 // --- Tabs ---------------------------------------------------------------
@@ -1093,6 +1226,24 @@ function negotiateCard(channelId, channelName, initialMessage, autoOpen) {
           ${draft.roundWarning ? `<p class="review-note">${draft.roundWarning}</p>` : ""}
           <p class="card-meta">Recommended action: ${draft.action}${draft.evaluation ? ` — CPM verdict: ${draft.evaluation.verdict}` : ""}</p>
           <div class="draft-body">${draft.body}</div>
+          ${
+            draft.action === "accept"
+              ? `<div class="deal-structure">
+                  <label>Deal type
+                    <select class="r-dealType">
+                      <option value="flat">Flat</option>
+                      <option value="cpm">CPM</option>
+                      <option value="hybrid">Hybrid</option>
+                    </select>
+                  </label>
+                  <span class="r-cpmFields" style="display:none">
+                    <label>CPM rate ($/1000 views) <input class="r-cpmRate" type="number" min="0" step="0.01" /></label>
+                    <label>View cap <input class="r-viewCap" type="number" min="0" /></label>
+                    <label>Monitoring days <input class="r-monitoringDays" type="number" min="1" value="30" /></label>
+                  </span>
+                </div>`
+              : ""
+          }
           <div class="actions">
             <button class="secondary r-editBtn">Edit</button>
             <button class="r-sendBtn" ${draft.approved ? "" : "disabled"}>Send to ${to}</button>
@@ -1101,6 +1252,12 @@ function negotiateCard(channelId, channelName, initialMessage, autoOpen) {
           <div class="status-msg"></div>
         </div>
       `;
+
+      const dealTypeSel = draftContainer.querySelector(".r-dealType");
+      const cpmFields = draftContainer.querySelector(".r-cpmFields");
+      dealTypeSel?.addEventListener("change", () => {
+        cpmFields.style.display = dealTypeSel.value === "flat" ? "none" : "";
+      });
 
       const bodyEl = draftContainer.querySelector(".draft-body");
       const editBtn = draftContainer.querySelector(".r-editBtn");
@@ -1125,6 +1282,7 @@ function negotiateCard(channelId, channelName, initialMessage, autoOpen) {
         sendBtn.disabled = true;
         sendBtn.textContent = "Sending…";
         try {
+          const dealType = dealTypeSel?.value;
           const sendRes = await fetch("/api/negotiate/send", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1138,6 +1296,11 @@ function negotiateCard(channelId, channelName, initialMessage, autoOpen) {
               action: draft.action,
               gmailThreadId: context.lastSend?.gmailThreadId,
               rfcMessageId: context.lastSend?.rfcMessageId,
+              dealType,
+              cpmRate: dealType && dealType !== "flat" ? draftContainer.querySelector(".r-cpmRate")?.value || undefined : undefined,
+              viewCap: dealType && dealType !== "flat" ? draftContainer.querySelector(".r-viewCap")?.value || undefined : undefined,
+              monitoringDays:
+                dealType && dealType !== "flat" ? draftContainer.querySelector(".r-monitoringDays")?.value || undefined : undefined,
             }),
           });
           const sendResult = await sendRes.json();

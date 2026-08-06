@@ -28,7 +28,7 @@ export async function findReplyInThread(
   gmail: ReturnType<typeof google.gmail>,
   threadId: string,
   myEmail: string,
-): Promise<{ from: string; snippet: string } | undefined> {
+): Promise<{ from: string; snippet: string; receivedAt: string } | undefined> {
   const thread = await gmail.users.threads.get({
     userId: "me",
     id: threadId,
@@ -41,7 +41,11 @@ export async function findReplyInThread(
     const fromHeader = messages[i].payload?.headers?.find((h) => h.name === "From")?.value;
     if (!fromHeader) continue;
     if (extractEmailAddress(fromHeader) !== myEmail.toLowerCase()) {
-      return { from: fromHeader, snippet: messages[i].snippet ?? "" };
+      // internalDate is a top-level field on every message (ms-epoch string
+      // as text), not a header — always present regardless of
+      // metadataHeaders, so no extra scope/field request needed to get it.
+      const receivedAt = messages[i].internalDate ? new Date(Number(messages[i].internalDate)).toISOString() : new Date().toISOString();
+      return { from: fromHeader, snippet: messages[i].snippet ?? "", receivedAt };
     }
   }
   return undefined;
@@ -131,7 +135,7 @@ export async function checkForReplies(): Promise<DetectedReply[]> {
   for (const thread of threads) {
     const reply = await findReplyInThread(gmail, thread.gmailThreadId, myEmail);
     if (!reply) continue;
-    await markReplied(thread.channelId);
+    await markReplied(thread.channelId, reply.receivedAt);
     detected.push({
       channelId: thread.channelId,
       channelName: thread.channelName,

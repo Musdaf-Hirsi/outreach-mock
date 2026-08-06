@@ -126,6 +126,12 @@ export interface NegotiationState {
   // / recordInboundCheckIns) — the last time this thread was checked for new
   // messages from the creator, so re-scans only count genuinely new ones.
   lastInboundScanAt?: string;
+  // Course qualification dimension (Ammar's 4th: responsiveness during
+  // initial contact predicts responsiveness once a deal's on the line).
+  // ISO timestamp of the first real reply Gmail returned, captured once and
+  // never overwritten — used to compute days-to-first-reply against the
+  // original send timestamp.
+  firstReplyAt?: string;
   updatedAt: string; // ISO
 }
 
@@ -245,6 +251,13 @@ export async function recordNegotiationRound(
     quotedPrice?: number;
     counterOffered?: number;
     dealStatus?: DealStatus;
+    // Course technique ("CPM vs Straight"): what a deal actually closed on.
+    // Optional because most rounds are still mid-negotiation — only a
+    // closing round realistically has this to report.
+    dealType?: "flat" | "cpm" | "hybrid";
+    cpmRate?: number;
+    viewCap?: number;
+    monitoringDays?: number;
   },
 ): Promise<NegotiationState> {
   const current = getNegotiationState(channelId, update.channelName);
@@ -270,7 +283,30 @@ export async function recordNegotiationRound(
     dealStatus,
     timelineSetAt,
     dealsCompleted,
+    dealType: update.dealType ?? current.dealType,
+    cpmRate: update.cpmRate ?? current.cpmRate,
+    viewCap: update.viewCap ?? current.viewCap,
+    monitoringDays: update.monitoringDays ?? current.monitoringDays,
   });
+}
+
+// Course technique ("The 2 Different Paths You Can Take"): the only writer
+// for relationshipType/commissionPct. Without this, getExclusivityCandidates
+// would flag a 2+-deal creator forever, even after they'd actually been
+// signed exclusively, since nothing could ever move them out of the
+// candidate list. A separate setter (rather than folding into
+// recordNegotiationRound) because moving to exclusive is its own deliberate
+// conversation/decision, not a byproduct of sending a negotiation reply.
+export async function setRelationshipType(
+  channelId: string,
+  relationshipType: "discount" | "exclusive",
+  commissionPct?: number,
+  channelName?: string,
+): Promise<NegotiationState> {
+  if (commissionPct !== undefined && (commissionPct < 0 || commissionPct > 100)) {
+    throw new Error(`commissionPct must be between 0 and 100, got ${commissionPct}`);
+  }
+  return updateNegotiationState(channelId, { channelName, relationshipType, commissionPct });
 }
 
 // Course's tracking-sheet discipline: a running qualitative rating per
@@ -360,7 +396,7 @@ export interface NeedinessSignal {
 // it as leverage in a future repricing conversation ("less money per deal,
 // way more deals"). Threshold matches the course's own framing ("if they
 // follow up too often").
-const NEEDINESS_THRESHOLD = 3;
+export const NEEDINESS_THRESHOLD = 3;
 
 export function getNeedinessSignals(): NeedinessSignal[] {
   const store = loadStore();
@@ -409,7 +445,10 @@ export async function recordOutreach(entry: Omit<OutreachEntry, "timestamp">): P
 
 // Marks the most recent entry for a channel as replied-to, so it drops out
 // of the follow-up queue. Call this as soon as you see a real reply land.
-export async function markReplied(channelId: string): Promise<void> {
+// repliedAt (the actual Gmail message timestamp, not "now") records the
+// FIRST reply only — a repricing conversation's reply months later
+// shouldn't overwrite the original responsiveness signal.
+export async function markReplied(channelId: string, repliedAt?: string): Promise<void> {
   await withFileLock(STORE_FILE, () => {
     const store = loadStore();
     const matches = store.entries.filter((e) => e.channelId === channelId);
@@ -417,6 +456,12 @@ export async function markReplied(channelId: string): Promise<void> {
     matches[matches.length - 1].replied = true;
     saveStore(store);
   });
+  if (repliedAt) {
+    const current = getNegotiationState(channelId);
+    if (!current.firstReplyAt) {
+      await updateNegotiationState(channelId, { firstReplyAt: repliedAt });
+    }
+  }
 }
 
 export interface FollowUpCandidate {
@@ -591,6 +636,11 @@ export interface ContactedCreatorSummary {
   timesContacted: number;
   replied: boolean;
   dealStatus: DealStatus;
+  // Course qualification dimension (Ammar's 4th): how many days between
+  // your first outreach and their first real reply — null when not replied
+  // yet, or when replied before this field existed (no firstReplyAt on
+  // file to compute against).
+  daysToFirstReply: number | null;
 }
 
 // One row per unique channel/contact ever logged, newest-contacted first —
@@ -611,6 +661,10 @@ export function getAllContactedCreators(): ContactedCreatorSummary[] {
   for (const [channelId, entries] of byChannel) {
     const first = entries[0];
     const last = entries[entries.length - 1];
+    const firstReplyAt = store.channels[channelId]?.firstReplyAt;
+    const daysToFirstReply = firstReplyAt
+      ? Math.max(0, Math.round((new Date(firstReplyAt).getTime() - new Date(first.timestamp).getTime()) / (1000 * 60 * 60 * 24)))
+      : null;
     summaries.push({
       channelId,
       channelName: last.channelName,
@@ -622,6 +676,7 @@ export function getAllContactedCreators(): ContactedCreatorSummary[] {
       timesContacted: entries.length,
       replied: entries.some((e) => e.replied),
       dealStatus: store.channels[channelId]?.dealStatus ?? "cold",
+      daysToFirstReply,
     });
   }
 

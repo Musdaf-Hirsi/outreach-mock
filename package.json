@@ -7,6 +7,7 @@
     "dev": "tsx src/run.ts",
     "interactive": "tsx src/run-interactive.ts",
     "manual-add": "tsx src/run-manual.ts",
+    "import-manual": "tsx src/import-manual-csv.ts",
     "influencers-md": "tsx src/report-influencers.ts",
     "influencers-excel": "tsx src/report-excel.ts",
     "sync-sheet": "tsx src/sync-sheet.ts",
@@ -19,6 +20,7 @@
     "mark-replied": "tsx src/mark-replied.ts",
     "check-replies": "tsx src/check-replies.ts",
     "rate-creator": "tsx src/rate-creator.ts",
+    "set-relationship": "tsx src/set-relationship.ts",
     "gmail-auth": "tsx src/gmail/get-token.ts",
     "typecheck": "tsc --noEmit"
   },

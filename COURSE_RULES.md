@@ -84,12 +84,12 @@ Scope: influencer discovery, qualification, drafting, review, follow-up, negotia
 
 ## 6. Negotiation & Pricing
 
-*(Not yet reflected in the codebase — included here since it's core to the influencer-outreach domain and a natural next build target once first-contact automation is mature.)*
+*(Now reflected in the codebase — see `src/pricing/cpm-calculator.ts`, `src/mastra/agents/negotiation-agent.ts`, and the negotiation-state fields in `src/tracking/outreach-log.ts` — though the `relationshipType`/`dealType`/`cpmRate`/`viewCap`/`monitoringDays` fields have no writer yet in the CLI/web close flows; see the cross-reference section below.)*
 
 ### Pricing fundamentals
 
 - CPM (cost per thousand views) is the primary pricing anchor across platforms — computed as price ÷ (views ÷ 1000).
-- Typical niche CPM ranges cited (YouTube baseline, non-exhaustive, meant as ballpark only): Tech/Gadgets ~$20–50, Finance ~$40–80, Health/Fitness ~$15–35, Entertainment ~$5–20, Lifestyle/Beauty ~$10–25, Travel ~$12–20, Education ~$10–40, Luxury Goods ~$30–50. Course explicitly frames these as rough guides, not fixed rules — actual pricing requires developing situational judgment ("a sniff") through practice.
+- Typical niche CPM ranges cited (YouTube baseline, non-exhaustive, meant as ballpark only): Tech/Gadgets ~$20–50, Finance ~$40–80, Health/Fitness ~$15–35, Entertainment ~$5–20, Lifestyle/Beauty ~$10–25, Travel ~$12–20, Education ~$25–40, Gaming ~$10–20, Food/Cooking ~$10–20, Luxury Goods ~$30–50. Unlisted niches default to ~$5–15. Course explicitly frames these as rough guides, not fixed rules — actual pricing requires developing situational judgment ("a sniff") through practice.
 - Two payment structures: flat rate (fixed price regardless of performance — low risk for the creator, all risk to the brand) versus CPM/performance-based (paid per actual views achieved, typically capped at a maximum view count and bounded by a monitoring window, e.g., 30 days) — higher risk/reward for the creator, safer for the brand.
 - Positive price-adjustment factors (justify pricing above baseline CPM): recognized niche authority/exclusivity, premium production quality, unusually loyal/high-trust audience.
 - Negative price-adjustment factors (justify pricing below baseline CPM): engagement under ~2%, high posting frequency with low effort per post (audience fatigue), inconsistent view counts across recent uploads, inexperienced/new creators who tend to undervalue or overvalue themselves inconsistently.
@@ -132,7 +132,7 @@ Scope: influencer discovery, qualification, drafting, review, follow-up, negotia
 
 ## Cross-reference: what's already implemented vs. genuinely new
 
-The following is a rough mapping against the current codebase (`src/mastra/tools/find-influencers-tool.ts`, `src/mastra/agents/drafting-agent.ts`, `src/mastra/agents/supervisor-agent.ts`, `src/tracking/outreach-log.ts`, `src/utils/workdays.ts`, `src/run-followups.ts`) as of this audit — for scoping future work, not a claim of completeness.
+The following is a rough mapping against the current codebase (`src/mastra/tools/find-influencers-tool.ts`, `src/mastra/agents/drafting-agent.ts`, `src/mastra/agents/negotiation-agent.ts`, `src/mastra/agents/supervisor-agent.ts`, `src/pricing/cpm-calculator.ts`, `src/tracking/outreach-log.ts`, `src/utils/workdays.ts`, `src/run-followups.ts`, `src/run-checkins.ts`) as of this audit — for scoping future work, not a claim of completeness.
 
 **Already implemented (at least partially):**
 - Tiered engagement-rate qualification scaled by subscriber count (Section 1).
@@ -142,13 +142,14 @@ The following is a rough mapping against the current codebase (`src/mastra/tools
 - Four-part email structure, subject-line rules, banned-phrasing/tone rules, word-length cap, no-links/signature formatting rule (Section 3).
 - Named-brand-offer technique via automated sponsor-mention scanning across the candidate pool (Section 3).
 - Supervisor rejection checks for generic subject lines, fabricated brand claims, needy tone, formatting violations, and CTA structure (Section 4).
-- Escalating workday-aware follow-up cadence, weekend/Friday-send handling, light-vs-heavy follow-up weighting, and a 7-follow-up give-up/new-thread-angle threshold (Section 5).
+- Escalating workday-aware follow-up cadence, weekend/Friday-landing handling (no follow-up ever computed to land on a Friday, not just a Friday-send-rolling-to-Monday case), and light/heavy/check-in follow-up weighting (Section 5). Per the 2026 deliverability update (which supersedes the course's original 4-7 follow-up guidance), sequences are capped at `MAX_FOLLOW_UPS_PER_THREAD = 2` total follow-ups rather than escalating toward a 7-attempt give-up threshold; a cold thread past the cap is not automatically retried with a new angle.
 - Daily send-volume pacing/quota on the Gmail side, and a hard duplicate-send guard (Section 7, partially).
+- CPM calculation and pricing benchmarks, negotiation psychology/scripting (never-accept-round-1, low anchor, dealbreaker framing, long-term-partnership framing), flat/CPM/hybrid deal-structure proposals, and agency-negotiation service-trade framing (Section 6) — `src/pricing/cpm-calculator.ts`, `src/mastra/agents/negotiation-agent.ts`, `src/mastra/agents/supervisor-agent.ts` rule 20.
+- Post-close relationship-management flow: timeline-setting on close, `npm run checkins` for the actual check-in send, and inbound-neediness-signal detection on closed threads feeding into a repricing-conversation flag (Section 7) — `src/run-checkins.ts`, `getCheckInsDue`/`getNeedinessSignals`/`scanClosedThreadsForInboundActivity`.
 
 **Not yet implemented / genuinely new territory:**
-- Audience-demographics qualification (country/age purchase-power checks) — not automatable from the YouTube Data API directly, would require manually-supplied media-kit data or a new data source.
-- Any CPM/pricing calculation, negotiation scripting, or deal-structuring logic (Section 6 in full) — the codebase currently stops at first-contact outreach and has no reply-handling, negotiation, or pricing agent at all.
+- Audience-demographics qualification (country/age purchase-power checks) — not automatable from the YouTube Data API directly, would require manually-supplied media-kit data or a new data source; a free-text audience note is checked for golden-country mentions (`src/utils/audience-check.ts`) but this is a manual-entry signal, not automated qualification.
+- Deal-structure and exclusivity recording — `relationshipType`, `dealType`, `cpmRate`, `viewCap`, and `monitoringDays` exist as `NegotiationState` fields but have no writer anywhere in the CLI or web close flows yet, so a deal that actually closes on CPM/hybrid terms, or a creator who's actually signed exclusively, is never recorded as such; `getExclusivityCandidates` will keep flagging a 2+-deal creator indefinitely until this is built.
 - Cross-niche brand-upselling logic (Section 6) — depends on the not-yet-built brand-discovery half of the pipeline.
 - Tracking-sheet-style qualitative rating field per creator (Section 1) — `outreach-log.json` logs contact history but has no quality/rating field.
 - YouTube email-lookup-limit mitigations (separate prospecting account, incognito, IP variation) — not applicable in the same way since discovery here is fully API-driven rather than manual browser lookups, but the underlying daily-cap concept is already handled via `youtube-quota.ts`.
-- Post-close relationship-management flow (Section 7's timeline-setting/check-in cadence after a creator says yes) — no code currently distinguishes "closed, awaiting brand match" from any other state.

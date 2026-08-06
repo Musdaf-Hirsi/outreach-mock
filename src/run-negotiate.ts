@@ -155,6 +155,27 @@ async function main() {
 
   const dealStatus = action === "accept" ? "closed" : action === "walk_away" ? "declined" : "negotiating";
 
+  // Course technique ("CPM vs Straight"): capture what the deal actually
+  // closed on. Without this, `dealType`/`cpmRate`/`viewCap`/`monitoringDays`
+  // exist as fields on NegotiationState but nothing ever writes them, so a
+  // deal that closed on CPM/hybrid terms silently reads back as flat.
+  let dealType: "flat" | "cpm" | "hybrid" | undefined;
+  let cpmRate: number | undefined;
+  let viewCap: number | undefined;
+  let monitoringDays: number | undefined;
+  if (dealStatus === "closed") {
+    const dealTypeRaw = (await rl.question("Deal type? flat/cpm/hybrid [flat]: ")).trim().toLowerCase();
+    dealType = dealTypeRaw === "cpm" || dealTypeRaw === "hybrid" ? dealTypeRaw : "flat";
+    if (dealType !== "flat") {
+      const cpmRateRaw = (await rl.question("CPM rate ($ per 1,000 views): ")).trim();
+      cpmRate = cpmRateRaw ? Number(cpmRateRaw) : undefined;
+      const viewCapRaw = (await rl.question("View cap: ")).trim();
+      viewCap = viewCapRaw ? Number(viewCapRaw) : undefined;
+      const monitoringDaysRaw = (await rl.question("Monitoring window in days [30]: ")).trim();
+      monitoringDays = monitoringDaysRaw ? Number(monitoringDaysRaw) : 30;
+    }
+  }
+
   const sendResult = await runTool(sendEmailTool, {
     to,
     subject: `Re: ${lastSend?.subject ?? channelName}`,
@@ -167,7 +188,15 @@ async function main() {
   });
 
   if (sendResult.status === "sent") {
-    const state = await recordNegotiationRound(channelId, { channelName, quotedPrice, dealStatus });
+    const state = await recordNegotiationRound(channelId, {
+      channelName,
+      quotedPrice,
+      dealStatus,
+      dealType,
+      cpmRate,
+      viewCap,
+      monitoringDays,
+    });
     console.log(`Sent. Negotiation round ${round}, deal status: ${dealStatus}.`);
     // Course rule ("Closed an influencer, now what?"): "closed" means
     // pricing and audience info are actually on file, not just a yes.

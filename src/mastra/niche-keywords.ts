@@ -8,6 +8,19 @@
 // expands to the full keyword set automatically, in find-candidates-for-
 // niche, so "cybersecurity" always means "run the real long-tail list," not
 // a single generic search.
+//
+// Any niche other than cybersecurity used to silently fall back to a single
+// generic search — the hardcoded list below only ever covered one niche.
+// The course's own fix for this ("ask the AI to generate 10 long-tail
+// keywords for your niche") is applied automatically here for any
+// unrecognized niche: generate once via the LLM, cache to
+// niche-keywords.json (gitignored, per-machine state) so it's reviewable/
+// editable and never regenerated on every sweep, and reuse from then on.
+
+import fs from "node:fs";
+import path from "node:path";
+import { Agent } from "@mastra/core/agent";
+import { outreachModel } from "./model";
 
 interface NicheExpansion {
   // Matched against the niche string with spaces stripped, so "cyber
@@ -79,12 +92,79 @@ function normalize(niche: string): string {
   return niche.toLowerCase().replace(/\s+/g, "");
 }
 
-// Returns the long-tail keyword list for a known broad niche, or the niche
-// itself unchanged (as a single-item list) if it doesn't match a known
-// expansion — an unrecognized niche still searches exactly what was typed,
-// same as before this existed.
-export function expandNiche(niche: string): string[] {
+const CACHE_FILE = path.resolve("niche-keywords.json");
+
+function loadCache(): Record<string, string[]> {
+  if (!fs.existsSync(CACHE_FILE)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
+  } catch {
+    // Corrupted cache is not worth failing a whole sweep over — just
+    // regenerate for whatever niches are requested going forward.
+    return {};
+  }
+}
+
+function saveCache(cache: Record<string, string[]>) {
+  const tmpFile = `${CACHE_FILE}.tmp`;
+  fs.writeFileSync(tmpFile, JSON.stringify(cache, null, 2));
+  fs.renameSync(tmpFile, CACHE_FILE);
+}
+
+const keywordExpansionAgent = new Agent({
+  name: "keyword-expansion-agent",
+  instructions: `
+You generate long-tail YouTube search phrases for an influencer-discovery
+sweep, per the course technique taught in "The Best Way of Finding
+Influencers Organically": broad niche terms keep resurfacing the same
+handful of giant channels, but specific phrasings that sound like real video
+titles surface smaller, more relevant creators instead.
+
+Given a niche, output 12-15 long-tail phrases, one per line, no numbering,
+no bullets, no commentary. Each phrase should read like something a real
+creator would title a video in this niche — specific, personal, and
+searchable (e.g. for "personal finance": "how I paid off $30k in debt in a
+year", "budgeting on minimum wage that actually worked", "day in the life
+of a bogleheads investor"). Cover a few distinct sub-angles within the niche
+(getting started/beginner, a personal story/journey, a how-to/tutorial, a
+review/opinion, a career or milestone moment) rather than 12 variations of
+the same angle. Never include the raw niche word by itself as one of the
+lines — every line must be a specific long-tail phrase, not the niche name.
+`,
+  model: outreachModel,
+});
+
+async function generateLongTailKeywords(niche: string): Promise<string[]> {
+  const result = await keywordExpansionAgent.generate(`Niche: ${niche}\nGenerate the long-tail phrase list now.`);
+  return result.text
+    .split("\n")
+    .map((line) => line.replace(/^[\s\-*\d.)]+/, "").trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 20);
+}
+
+// Returns the long-tail keyword list for a niche. Known broad niches
+// (cybersecurity) use the hand-curated list above; anything else generates
+// once via the LLM and caches to niche-keywords.json, falling back to the
+// niche itself unchanged if generation fails (no API key, network error) so
+// a sweep never hard-fails just because keyword expansion couldn't run.
+export async function expandNiche(niche: string): Promise<string[]> {
   const normalized = normalize(niche);
-  const expansion = NICHE_EXPANSIONS.find((e) => e.matches(normalized));
-  return expansion ? expansion.keywords : [niche];
+  const hardcoded = NICHE_EXPANSIONS.find((e) => e.matches(normalized));
+  if (hardcoded) return hardcoded.keywords;
+
+  const cache = loadCache();
+  if (cache[normalized]?.length) return cache[normalized];
+
+  let keywords: string[];
+  try {
+    keywords = await generateLongTailKeywords(niche);
+  } catch {
+    return [niche];
+  }
+  if (keywords.length === 0) return [niche];
+
+  cache[normalized] = keywords;
+  saveCache(cache);
+  return keywords;
 }
