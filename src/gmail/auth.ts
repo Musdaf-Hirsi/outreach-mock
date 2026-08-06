@@ -6,11 +6,21 @@ import { google } from "googleapis";
 // auto-reply-detection can read a thread's actual message bodies/headers to
 // tell a real reply apart from our own sent messages — metadata-only scope
 // wouldn't be enough to reliably identify the sender on older messages
-// missing a clean From header cache. Adding this scope means an existing
-// gmail-token.json (authorized under the old send-only scope) stops being
-// sufficient — re-run `npm run gmail-auth` once to get a token that covers
-// both scopes.
-const SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"];
+// missing a clean From header cache.
+//
+// spreadsheets was added later so the same authorized Google account (not a
+// separate service account) can also write the live tracking sheet
+// (../tracking/google-sheet-sync.ts) — same OAuth client, one token file,
+// since it's all the same person's Google account either way.
+//
+// Adding either scope means an existing gmail-token.json (authorized under
+// a narrower scope) stops being sufficient — re-run `npm run gmail-auth`
+// once to get a token that covers all of them.
+const SCOPES = [
+  "https://www.googleapis.com/auth/gmail.send",
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/spreadsheets",
+];
 const TOKEN_PATH = path.resolve("gmail-token.json");
 
 function getOAuthClient() {

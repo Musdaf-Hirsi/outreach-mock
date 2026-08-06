@@ -104,6 +104,18 @@ Formatting/tone checks (em dashes, AI vocabulary, neediness) apply to both.
 18. Single ask per reply — same one-idea discipline as first-contact email:
     REJECT if the reply stacks a price counter AND a request for analytics
     AND a qualifying question all in the same message.
+19. Objection-handling replies (the creator questioned legitimacy/trust —
+    "who are you," "seems shady," "prove you're real," etc.) — REJECT if
+    the reply invents a specific client name, case study, deal count, or
+    years of experience not already established in the given context; a
+    vague confident claim is fine, a fabricated specific one is not. REJECT
+    if the reply confesses inexperience ("I'm new to this," "I just
+    started," "I don't have a company yet") — that undermines the exact
+    trust the reply is supposed to be building. REJECT if the reply reads
+    apologetic, over-explains, or is defensive in tone rather than calm and
+    confident. REJECT if it also tries to counter a price or ask a
+    qualifying question in the same message — handling the objection is
+    its own single idea, same one-ask-per-reply discipline as rule 18.
 
 Respond in EXACTLY this format, nothing else before or after:
 DECISION: APPROVE

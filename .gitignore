@@ -11,3 +11,5 @@ negotiation-state.json
 *.swp
 outreach-log.backup-*.json
 INFLUENCERS.md
+found-candidates.json
+Influencers.xlsx

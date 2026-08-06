@@ -6,6 +6,7 @@ import {
   getCheckInsDue,
   getAllContactedCreators,
 } from "../../tracking/outreach-log";
+import { getAllFoundCandidatesDeduped } from "../../tracking/found-candidates-log";
 
 // Read-only snapshot of the real tracking data every other agent in this
 // app is blind to when chatted with directly — the manager agent is the
@@ -18,8 +19,10 @@ export const agencyStatusTool = createTool({
   id: "get-agency-status",
   description:
     "Returns a full live snapshot of the real outreach program: milestone/pace status, the follow-up queue " +
-    "(due now, not yet due, needs a fresh thread), post-close check-ins due, and every creator ever contacted " +
-    "with their platform, niche, deal status, and reply state.",
+    "(due now, not yet due, needs a fresh thread), post-close check-ins due, every creator ever contacted with " +
+    "their platform, niche, deal status, and reply state, and every real candidate ever found by a search " +
+    "(find-candidates-for-niche / the web UI's Search box) that hasn't been contacted yet — the 'Found " +
+    "Candidates' list from Influencers.xlsx / the tracking sheet.",
   inputSchema: z.object({}),
   outputSchema: z.object({
     milestone: z.object({
@@ -49,12 +52,25 @@ export const agencyStatusTool = createTool({
         lastContactedAt: z.string(),
       }),
     ),
+    foundCandidatesNotYetContacted: z.array(
+      z.object({
+        channelName: z.string(),
+        channelUrl: z.string(),
+        niches: z.array(z.string()),
+        subscribers: z.number(),
+        avgViews: z.number(),
+        engagementRate: z.number(),
+        contactEmail: z.string().optional(),
+      }),
+    ),
   }),
   execute: async () => {
     const milestone = getMilestoneStatus();
     const queue = getFollowUpQueue();
     const checkIns = getCheckInsDue();
     const creators = getAllContactedCreators();
+    const contactedNames = new Set(creators.map((c) => c.channelName));
+    const found = getAllFoundCandidatesDeduped().filter((c) => !contactedNames.has(c.channelName));
 
     return {
       milestone,
@@ -74,6 +90,15 @@ export const agencyStatusTool = createTool({
         replied: c.replied,
         timesContacted: c.timesContacted,
         lastContactedAt: c.lastContactedAt,
+      })),
+      foundCandidatesNotYetContacted: found.map((c) => ({
+        channelName: c.channelName,
+        channelUrl: c.channelUrl,
+        niches: c.niches,
+        subscribers: c.subscribers,
+        avgViews: c.avgViews,
+        engagementRate: c.engagementRate,
+        contactEmail: c.contactEmail,
       })),
     };
   },

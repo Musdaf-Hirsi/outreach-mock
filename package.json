@@ -8,6 +8,8 @@
     "interactive": "tsx src/run-interactive.ts",
     "manual-add": "tsx src/run-manual.ts",
     "influencers-md": "tsx src/report-influencers.ts",
+    "influencers-excel": "tsx src/report-excel.ts",
+    "sync-sheet": "tsx src/sync-sheet.ts",
     "web": "tsx src/web/server.ts",
     "dashboard": "tsx src/viz/server.ts",
     "report": "tsx src/report.ts",
@@ -22,10 +24,11 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^0.1.0",
     "@mastra/core": "^0.9.4",
-    "mastra": "^0.6.0",
     "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
     "express": "^4.19.2",
     "googleapis": "^144.0.0",
+    "mastra": "^0.6.0",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
   },

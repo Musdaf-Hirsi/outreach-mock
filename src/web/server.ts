@@ -20,6 +20,7 @@ import {
   getActiveThreads,
   getFollowUpQueue,
   getNegotiationState,
+  updateNegotiationState,
   recordNegotiationRound,
   getLastSendInfo,
   setCreatorRating,
@@ -31,6 +32,9 @@ import { sanitizeHumanText } from "../utils/sanitize-text";
 import { runTool } from "../utils/run-tool";
 import { findFabricatedBrands } from "../utils/brand-guard";
 import { writeInfluencersMarkdown } from "../report-influencers";
+import { writeInfluencersExcel } from "../report-excel";
+import { getAllFoundCandidatesDeduped } from "../tracking/found-candidates-log";
+import { syncTrackingSheet, syncTrackingSheetIfConfigured } from "../tracking/google-sheet-sync";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.WEB_PORT ?? 4742);
@@ -80,7 +84,10 @@ app.get("/api/find", async (req, res) => {
     const result = await runTool(findInfluencersTool, {
       niche,
       minSubscribers: 50_000,
-      maxSubscribers: 1_000_000,
+      // Course rule ("How to find influencers"): over ~500k usually means
+      // already agencied or too expensive to work with this early — 1M was
+      // looser than what's actually taught.
+      maxSubscribers: 500_000,
       minEngagementRate: 0.01,
       minAvgViews: 50_000,
       // Search a wider pool so more than one candidate can survive the
@@ -91,6 +98,9 @@ app.get("/api/find", async (req, res) => {
       videosPerChannel: 10,
     });
     res.json(result);
+    // Fire-and-forget: the response already went out, this just keeps the
+    // shared Google Sheet current for whoever has that link open.
+    void syncTrackingSheetIfConfigured();
   } catch (err: any) {
     res.status(500).json({ error: err.message ?? String(err) });
   }
@@ -347,6 +357,24 @@ app.get("/api/negotiate/context/:channelId", (req, res) => {
   res.json({ lastSend, state });
 });
 
+// Saves a real, human-checked audience demographic summary (top countries,
+// age split, gender split) from a media kit — the web UI is the only place
+// this can realistically get entered (nothing else in the app can see a
+// media kit), and until now there was no way to save it here at all: it
+// only had a CLI entry point (run-interactive.ts), which meant it stayed
+// permanently empty for anyone using the web app. Course technique ("Using
+// Analytics as Leverage") treats this as real negotiating ground once set —
+// see negotiation-agent.ts and /api/negotiate/draft.
+app.post("/api/negotiate/audience-note", async (req, res) => {
+  const { channelId, channelName, audienceNote } = req.body ?? {};
+  if (!channelId) {
+    res.status(400).json({ error: "channelId is required" });
+    return;
+  }
+  const state = await updateNegotiationState(channelId, { channelName, audienceNote: audienceNote ?? "" });
+  res.json({ audienceNote: state.audienceNote });
+});
+
 // Pulls the actual full text of their latest reply straight from Gmail, so
 // the web UI's "Draft reply" button can pre-fill what they said instead of
 // making the human go copy-paste it out of their inbox — the whole point of
@@ -393,6 +421,17 @@ app.post("/api/negotiate/draft", async (req, res) => {
 
     const state = getNegotiationState(channelId, channelName);
     const round = state.negotiationRound + 1;
+
+    // Course technique ("Using Analytics as Leverage"): a real, human-
+    // checked audience demographic note (top countries/age/gender split)
+    // is negotiating ground, same as CPM — YouTube's API can't expose this,
+    // so it only exists once someone has actually opened a media kit and
+    // saved it. Previously collected (audienceNote) but never actually
+    // reached the negotiation agent's prompt; it just sat in
+    // outreach-log.json unused.
+    if (state.audienceNote) {
+      pricingContext += `\nAudience note (from a real media kit check): ${state.audienceNote}`;
+    }
 
     let feedback = "";
     let body = "";
@@ -510,6 +549,122 @@ app.get("/api/report", (_req, res) => {
 app.post("/api/influencers-md", (_req, res) => {
   const count = writeInfluencersMarkdown();
   res.json({ count });
+});
+
+app.post("/api/sync-sheet", async (_req, res) => {
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
+  if (!spreadsheetId) {
+    res.status(400).json({ error: "GOOGLE_SHEETS_ID is not set in .env — paste your sheet's ID or share URL." });
+    return;
+  }
+  try {
+    const { found, contacted } = await syncTrackingSheet(spreadsheetId);
+    res.json({ found, contacted, url: `https://docs.google.com/spreadsheets/d/${spreadsheetId.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? spreadsheetId}/edit` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message ?? String(err) });
+  }
+});
+
+app.get("/api/influencers-excel", async (_req, res) => {
+  const { found, contacted } = await writeInfluencersExcel();
+  res.setHeader("Content-Disposition", "attachment; filename=Influencers.xlsx");
+  res.setHeader("X-Found-Count", String(found));
+  res.setHeader("X-Contacted-Count", String(contacted));
+  res.sendFile(path.resolve("Influencers.xlsx"));
+});
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
+// A stable URL (/sheet) that always shows the current tracking data as an
+// HTML page, instead of the Excel download — clicking "download" repeatedly
+// was piling up Influencers(1).xlsx, Influencers(2).xlsx, etc. in the
+// browser's downloads folder since a new blob download can't overwrite a
+// previous one. This reads the same two data sources as the Excel export
+// (found-candidates.json, outreach-log.json) live on every request, so
+// there's nothing to regenerate or re-download — just refresh the tab.
+app.get("/sheet", (_req, res) => {
+  const found = getAllFoundCandidatesDeduped();
+  const contacted = getAllContactedCreators();
+
+  const foundRows = found
+    .map(
+      (c) => `<tr>
+        <td><a href="${escapeHtml(c.channelUrl)}" target="_blank" rel="noopener">${escapeHtml(c.channelName)}</a></td>
+        <td>${escapeHtml(c.niches.join(", "))}</td>
+        <td>${c.subscribers.toLocaleString()}</td>
+        <td>${c.avgViews.toLocaleString()}</td>
+        <td>${(c.engagementRate * 100).toFixed(2)}%</td>
+        <td>${escapeHtml(c.postingConsistency)}</td>
+        <td>${escapeHtml(c.recentVideoTopic)}</td>
+        <td>${escapeHtml(c.contactEmail ?? "")}</td>
+        <td>${escapeHtml((c.sponsorBrandsMentioned ?? []).join(", "))}</td>
+        <td>${escapeHtml(c.suggestedBrandsToOffer.join(", "))}</td>
+        <td>${escapeHtml(c.foundAt.slice(0, 10))}</td>
+      </tr>`,
+    )
+    .join("\n");
+
+  const contactedRows = contacted
+    .map(
+      (c) => `<tr>
+        <td>${escapeHtml(c.channelName)}</td>
+        <td>${escapeHtml(c.platform)}</td>
+        <td>${escapeHtml(c.niche)}</td>
+        <td>${escapeHtml(c.dealStatus)}</td>
+        <td>${c.replied ? "yes" : "no"}</td>
+        <td>${c.timesContacted}</td>
+        <td>${escapeHtml(c.lastContactedAt.slice(0, 10))}</td>
+      </tr>`,
+    )
+    .join("\n");
+
+  res.send(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Influencer Tracking Sheet</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 24px; color: #1a1a1a; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  h2 { font-size: 16px; margin-top: 32px; }
+  .sub { color: #666; font-size: 13px; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; white-space: nowrap; }
+  th { background: #f0f0f0; position: sticky; top: 0; }
+  tr:nth-child(even) { background: #fafafa; }
+  .wrap { overflow-x: auto; }
+  a { color: #1a56db; }
+  .refresh { font-size: 13px; color: #666; }
+</style>
+</head>
+<body>
+  <h1>Influencer Tracking Sheet</h1>
+  <p class="sub">Bookmark this page — it always shows current data, no re-downloading. <a href="javascript:location.reload()" class="refresh">Refresh</a> · <a href="/api/influencers-excel">Download as .xlsx instead</a></p>
+
+  <h2>Found Candidates (${found.length})</h2>
+  <div class="wrap">
+  <table>
+    <thead><tr>
+      <th>Channel</th><th>Niche(s)</th><th>Subscribers</th><th>Avg Views</th><th>Engagement</th>
+      <th>Posting</th><th>Recent Video</th><th>Contact Email</th><th>Sponsors Mentioned</th><th>Suggested Brands</th><th>Found</th>
+    </tr></thead>
+    <tbody>${foundRows || `<tr><td colspan="11">No candidates found yet.</td></tr>`}</tbody>
+  </table>
+  </div>
+
+  <h2>Contacted (${contacted.length})</h2>
+  <div class="wrap">
+  <table>
+    <thead><tr>
+      <th>Creator</th><th>Platform</th><th>Niche</th><th>Status</th><th>Replied</th><th>Times Contacted</th><th>Last Contacted</th>
+    </tr></thead>
+    <tbody>${contactedRows || `<tr><td colspan="7">No one contacted yet.</td></tr>`}</tbody>
+  </table>
+  </div>
+</body>
+</html>`);
 });
 
 app.get("/api/influencers", (_req, res) => {

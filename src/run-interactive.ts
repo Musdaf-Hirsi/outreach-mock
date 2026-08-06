@@ -26,7 +26,7 @@ function mentionsGoldenCountry(note: string): boolean {
 // instead of silently falling back to a placeholder address.
 
 async function main() {
-  const niche = process.argv[2] ?? "reverse type 2 diabetes";
+  const niche = process.argv[2] ?? "cybersecurity"; // official niche
   const rl = readline.createInterface({ input: stdin, output: stdout });
 
   initGraph();
@@ -42,7 +42,7 @@ async function main() {
   const findResult = await runTool(findInfluencersTool, {
     niche,
     minSubscribers: 50_000,
-    maxSubscribers: 5_000_000,
+    maxSubscribers: 500_000,
     minEngagementRate: 0.01,
     minAvgViews: 50_000,
     maxCandidates: 50,

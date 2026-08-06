@@ -7,6 +7,10 @@ import { sanitizeHumanText } from "../../utils/sanitize-text";
 import { getAllContactedCreators, getFollowUpQueue, getLastSendInfo, getNegotiationState } from "../../tracking/outreach-log";
 import { getLastReplyBody } from "../../gmail/check-replies";
 import { computeBaselineViews, evaluateQuote, estimateFairPrice } from "../../pricing/cpm-calculator";
+import { findInfluencersTool } from "./find-influencers-tool";
+import { runTool } from "../../utils/run-tool";
+import { expandNiche } from "../niche-keywords";
+import { syncTrackingSheetIfConfigured } from "../../tracking/google-sheet-sync";
 
 // Lets the manager agent actually delegate to the drafting-side agents by
 // name ("tell the follow-up agent to nudge X", "reply to Y") instead of only
@@ -79,18 +83,27 @@ export const draftFollowUpForCreatorTool = createTool({
 export const draftReplyForCreatorTool = createTool({
   id: "draft-reply-for-creator",
   description:
-    "Drafts (does NOT send) a reply to a creator who already responded, found by name. Automatically pulls " +
-    "their actual latest Gmail message and runs it through the negotiation agent + supervisor review, using CPM " +
-    "math if a price/view-count/engagement figure is given. Returns the drafted text for a human to review and " +
-    "send from that creator's row in the Influencers tab.",
+    "Drafts (does NOT send) a reply to a creator who already responded, found by name. By default, automatically " +
+    "pulls their actual latest Gmail message; if that can't be reached (e.g. the message was quoted directly by " +
+    "the user, or the Gmail thread isn't accessible under the currently authorized account), pass creatorMessage " +
+    "with the exact text the user gave you instead of guessing or giving up. Runs the message through the " +
+    "negotiation agent + supervisor review, using CPM math if a price/view-count/engagement figure is given. " +
+    "Returns the drafted text for a human to review and send from that creator's row in the Influencers tab.",
   inputSchema: z.object({
     creatorName: z.string().describe("Full or partial creator name to look up"),
+    creatorMessage: z
+      .string()
+      .optional()
+      .describe(
+        "The creator's actual message, if the user already typed/pasted it in chat — use this instead of " +
+          "auto-fetching from Gmail when the user has directly quoted what the creator said.",
+      ),
     quotedPrice: z.number().optional().describe("Price the creator quoted, if known"),
     viewCounts: z.array(z.number()).optional().describe("Recent video view counts, for CPM baseline"),
     engagementRate: z.number().optional().describe("Engagement rate as a decimal, e.g. 0.04"),
   }),
   outputSchema: z.object({
-    status: z.enum(["drafted", "not-found", "ambiguous", "no-thread", "no-reply-found"]),
+    status: z.enum(["drafted", "not-found", "ambiguous", "no-thread", "no-reply-found", "gmail-unreachable"]),
     body: z.string().optional(),
     action: z.string().optional(),
     approved: z.boolean().optional(),
@@ -110,13 +123,32 @@ export const draftReplyForCreatorTool = createTool({
 
     const creator = matches[0];
     const lastSend = getLastSendInfo(creator.channelId);
-    if (!lastSend?.gmailThreadId) {
-      return { status: "no-thread" as const, channelName: creator.channelName };
-    }
 
-    const reply = await getLastReplyBody(lastSend.gmailThreadId);
-    if (!reply) {
-      return { status: "no-reply-found" as const, channelName: creator.channelName };
+    let replyBody: string;
+    if (context.creatorMessage) {
+      // The user already told us what the creator said — no need to touch
+      // Gmail at all, and this also works for creators whose real thread
+      // predates a Gmail account switch (recorded under a different
+      // mailbox than the one currently authorized, so it's unreachable).
+      replyBody = context.creatorMessage;
+    } else {
+      if (!lastSend?.gmailThreadId) {
+        return { status: "no-thread" as const, channelName: creator.channelName };
+      }
+      let reply: Awaited<ReturnType<typeof getLastReplyBody>>;
+      try {
+        reply = await getLastReplyBody(lastSend.gmailThreadId);
+      } catch {
+        // A thread ID recorded under a different Gmail account than the one
+        // currently authorized returns a raw "not found" from the Gmail
+        // API — that's not a real error to surface, it just means this
+        // specific thread can't be auto-fetched right now.
+        return { status: "gmail-unreachable" as const, channelName: creator.channelName };
+      }
+      if (!reply) {
+        return { status: "no-reply-found" as const, channelName: creator.channelName };
+      }
+      replyBody = reply.body;
     }
 
     const { quotedPrice, viewCounts, engagementRate } = context;
@@ -139,6 +171,13 @@ export const draftReplyForCreatorTool = createTool({
     const state = getNegotiationState(creator.channelId, creator.channelName);
     const round = state.negotiationRound + 1;
 
+    // Course technique ("Using Analytics as Leverage") — see server.ts's
+    // /api/negotiate/draft for the full reasoning: a real, human-checked
+    // audience demographic note is negotiating ground, same as CPM.
+    if (state.audienceNote) {
+      pricingContext += `\nAudience note (from a real media kit check): ${state.audienceNote}`;
+    }
+
     let feedback = "";
     let body = "";
     let action = "";
@@ -147,7 +186,7 @@ export const draftReplyForCreatorTool = createTool({
 
     for (let attempt = 1; attempt <= MAX_DRAFT_ATTEMPTS; attempt++) {
       const draftPrompt =
-        `Creator's message: ${reply.body}\nChannel: ${creator.channelName}\nNiche: ${creator.niche}\n` +
+        `Creator's message: ${replyBody}\nChannel: ${creator.channelName}\nNiche: ${creator.niche}\n` +
         `Negotiation round: ${round}\n${pricingContext}` +
         (feedback ? `\n\nRevise based on this feedback: ${feedback}` : "");
       const draftResult = await negotiationAgent.generate(draftPrompt);
@@ -173,5 +212,153 @@ export const draftReplyForCreatorTool = createTool({
     }
 
     return { status: "drafted" as const, body, action, approved, reviewNote, channelName: creator.channelName, to: creator.to };
+  },
+});
+
+// Runs the real YouTube discovery search, following the course's own
+// "Best Way of Finding Influencers Organically" lesson end to end instead of
+// just its first step:
+//
+// Step 1 (long-tail keywords): a broad niche ("cybersecurity") is expanded
+// in code (niche-keywords.ts) into the course's real long-tail keyword list
+// and searched once per keyword — the same broad term used to run exactly
+// one generic search and keep resurfacing the same handful of giant
+// channels. This can't be left to the agent to do itself by issuing 10
+// separate tool calls: that depends on the model remembering and correctly
+// re-issuing the whole list every time, which is exactly the kind of thing
+// that's been observed to silently drop keywords under load.
+//
+// Step 3 (intitle: vs quotes): each keyword search runs in "intitle" mode
+// (find-influencers-tool's default) — the lesson's own demo shows this
+// alone already surfaces smaller channels a plain search misses.
+//
+// Step 2 (copy a found title, search it again): after the keyword sweep,
+// the top few candidates just found (by engagement) have their actual
+// recent video title re-searched as an exact quoted phrase — the lesson's
+// second organic-discovery technique, "once you find a video from a small
+// creator in your niche, copy the video title and search it again... you'll
+// often find smaller channels in the results." This surfaces channels the
+// keyword list alone wouldn't, without needing the user to manually watch
+// videos and copy titles by hand.
+const TITLE_ECHO_ROUNDS = 5;
+
+export const findCandidatesForNicheTool = createTool({
+  id: "find-candidates-for-niche",
+  description:
+    "Searches real YouTube channels for a niche via the YouTube Data API, filtered by the course's qualification " +
+    "rules (50k-500k subscribers, tiered minimum engagement rate, minimum average views). For niches with a known " +
+    "long-tail keyword set (e.g. 'cybersecurity'), automatically searches every keyword in that set (intitle: " +
+    "mode), then re-searches the top few results' own video titles as exact quoted phrases to surface similar " +
+    "smaller channels (the course's 'copy the title and search again' technique) — the full organic-discovery " +
+    "method from the lesson, not just one generic search. Returns real candidates only — never invents names. " +
+    "Use this whenever asked to find/discover new influencers in a niche, as opposed to drafting to someone " +
+    "already in the tracking data.",
+  inputSchema: z.object({
+    niche: z.string().describe("Niche to search, e.g. 'cybersecurity', 'insulin resistance', or 'personal finance'"),
+  }),
+  outputSchema: z.object({
+    count: z.number(),
+    searchedKeywords: z.array(z.string()),
+    titleEchoSearches: z.array(z.string()).describe("Video titles from top early results that were re-searched as exact phrases (step 2 of the course method)"),
+    failedKeywords: z.array(z.string()).describe("Keywords that errored out (e.g. transient API failure) and were skipped, not silently dropped"),
+    candidates: z.array(
+      z.object({
+        channelName: z.string(),
+        subscribers: z.number(),
+        avgViews: z.number(),
+        engagementRate: z.number(),
+        contactEmail: z.string().optional(),
+        foundVia: z.string(),
+        sponsorBrandsMentioned: z.array(z.string()).describe("Real brands scanned from this creator's own video descriptions — sponsors they've already worked with, not a suggestion"),
+        suggestedBrandsToOffer: z.array(z.string()).describe("Brands seen elsewhere in this niche's pool that this creator has NOT worked with — a real (non-fabricated) starting point for the outreach offer"),
+      }),
+    ),
+  }),
+  execute: async ({ context }) => {
+    interface CandidateAcc {
+      channelId: string;
+      channelName: string;
+      subscribers: number;
+      avgViews: number;
+      engagementRate: number;
+      recentVideoTopic: string;
+      contactEmail: string | undefined;
+      foundVia: string;
+      sponsorBrandsMentioned: string[];
+      suggestedBrandsToOffer: string[];
+    }
+
+    const keywords = expandNiche(context.niche);
+    const byChannelId = new Map<string, CandidateAcc>();
+    const candidatesAcc: CandidateAcc[] = [];
+    const failedKeywords: string[] = [];
+
+    async function runSearch(query: string, searchMode: "intitle" | "quotes", foundVia: string) {
+      let result: Awaited<ReturnType<typeof findInfluencersTool.execute>>;
+      try {
+        result = await runTool(findInfluencersTool, {
+          niche: query,
+          minSubscribers: 50_000,
+          maxSubscribers: 500_000,
+          minEngagementRate: 0.01,
+          minAvgViews: 50_000,
+          maxCandidates: 20,
+          videosPerChannel: 10,
+          searchMode,
+        });
+      } catch (err: any) {
+        // A transient YouTube API error (e.g. a 503) on one keyword out of
+        // several used to abort the entire sweep — the rest, and whatever
+        // they'd already found, were lost along with it. Skip just this
+        // one and keep going; report it as failed rather than silently
+        // dropping it.
+        failedKeywords.push(query);
+        return;
+      }
+
+      for (const r of result.results) {
+        if (byChannelId.has(r.channelId)) continue;
+        const entry: CandidateAcc = {
+          channelId: r.channelId,
+          channelName: r.channelName,
+          subscribers: r.subscribers,
+          avgViews: r.avgViews,
+          engagementRate: r.engagementRate,
+          recentVideoTopic: r.recentVideoTopic,
+          contactEmail: r.contactHints.emails[0],
+          foundVia,
+          sponsorBrandsMentioned: r.sponsorBrandsMentioned,
+          suggestedBrandsToOffer: r.suggestedBrandsToOffer,
+        };
+        byChannelId.set(r.channelId, entry);
+        candidatesAcc.push(entry);
+      }
+    }
+
+    for (const keyword of keywords) {
+      await runSearch(keyword, "intitle", keyword);
+    }
+
+    // Step 2: copy the title from the strongest early results and search it
+    // again as an exact phrase. Picking by engagement (not just "first
+    // found") targets the candidates most likely to have genuinely similar
+    // peers, rather than an arbitrary early match.
+    const titleEchoSearches: string[] = [];
+    const topByEngagement = [...candidatesAcc].sort((a, b) => b.engagementRate - a.engagementRate).slice(0, TITLE_ECHO_ROUNDS);
+    for (const candidate of topByEngagement) {
+      if (!candidate.recentVideoTopic || titleEchoSearches.includes(candidate.recentVideoTopic)) continue;
+      titleEchoSearches.push(candidate.recentVideoTopic);
+      await runSearch(candidate.recentVideoTopic, "quotes", `similar to "${candidate.recentVideoTopic}" (${candidate.channelName})`);
+    }
+
+    await syncTrackingSheetIfConfigured();
+
+    return {
+      count: candidatesAcc.length,
+      searchedKeywords: keywords,
+      titleEchoSearches,
+      failedKeywords,
+      candidates: candidatesAcc.map(({ channelId, recentVideoTopic, ...rest }) => rest),
+    };
   },
 });

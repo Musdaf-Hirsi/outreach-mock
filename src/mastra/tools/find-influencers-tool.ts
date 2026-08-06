@@ -3,6 +3,7 @@ import { z } from "zod";
 import { setNode, logDetail } from "../../viz/graph";
 import { consumeQuota, sleep } from "./youtube-quota";
 import { getContactHistory } from "../../tracking/outreach-log";
+import { logFoundCandidates } from "../../tracking/found-candidates-log";
 
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 const REQUEST_DELAY_MS = Number(process.env.YOUTUBE_REQUEST_DELAY_MS ?? 300);
@@ -159,7 +160,11 @@ async function getRecentVideoStats(uploadsPlaylistId: string, maxVideos: number)
     maxResults: String(maxVideos),
   });
 
-  const videoIds = playlistData.items.map((item) => item.contentDetails.videoId);
+  // A private/deleted video in the uploads playlist has no contentDetails.videoId.
+  // Passing that gap through into a joined id list (e.g. "abc,,def") makes the
+  // videos.list call misreport an unrelated "myRating" 403 instead of a clean
+  // error, so drop empties before building the request.
+  const videoIds = playlistData.items.map((item) => item.contentDetails.videoId).filter(Boolean);
   if (videoIds.length === 0) {
     return {
       avgViews: 0,
@@ -234,7 +239,7 @@ export const findInfluencersTool = createTool({
   inputSchema: z.object({
     niche: z.string().describe("Niche keyword to search, e.g. 'halal fitness' or 'personal finance'"),
     minSubscribers: z.number().default(50_000),
-    maxSubscribers: z.number().default(1_000_000),
+    maxSubscribers: z.number().default(500_000),
     minEngagementRate: z
       .number()
       .default(0.01)
@@ -253,14 +258,23 @@ export const findInfluencersTool = createTool({
       ),
     maxCandidates: z.number().default(5).describe("How many channels to search before filtering"),
     videosPerChannel: z.number().default(10).describe("Recent videos to sample for avg views / engagement / sponsor scan"),
-    useIntitleOperator: z
-      .boolean()
-      .default(true)
+    // Course technique ("The Best Way of Finding Influencers Organically",
+    // step 3): intitle: and quoted exact-phrase searches deliberately give
+    // different results from each other and from a plain search — the
+    // lesson's own side-by-side demo shows intitle: surfacing smaller
+    // creators a plain search misses, and quotes doing the same for a
+    // different subset. "quotes" is also the right mode for the copy-a-
+    // title-and-search-it-again technique (step 2): pasting a whole video
+    // title back in works best as an exact phrase, not intitle:, which only
+    // requires the words to appear in the title in any order.
+    searchMode: z
+      .enum(["intitle", "quotes", "plain"])
+      .default("intitle")
       .describe(
-        "Search by video (intitle:<niche>) instead of channel name — YouTube's channel search only " +
-          "matches well-known channel names/descriptions and keeps surfacing the same big accounts. " +
-          "Searching video titles with the intitle: operator surfaces smaller, more specific channels " +
-          "the same way the course's manual long-tail-keyword method does.",
+        "How the niche/query string is sent to YouTube's search: 'intitle' (intitle:<query>, words must appear " +
+          "in the video title) surfaces smaller channels than a plain keyword search; 'quotes' (\"<query>\") " +
+          "forces an exact-phrase match, best when the query is a whole video title copied from an existing " +
+          "candidate; 'plain' sends the query as-is, YouTube's normal (popularity-biased) search.",
       ),
     uploadedWithinDays: z
       .number()
@@ -335,22 +349,23 @@ export const findInfluencersTool = createTool({
       minAvgViews,
       maxCandidates,
       videosPerChannel,
-      useIntitleOperator,
+      searchMode,
       uploadedWithinDays,
     } = context;
 
-    setNode("find-influencers", "active", `searching "${niche}"`);
+    setNode("find-influencers", "active", `searching "${niche}" (${searchMode})`);
 
     // Search by video, not by channel name: channel search only matches
     // known channel titles/descriptions and keeps resurfacing the same big
-    // names. Searching video titles (optionally with intitle:) and pulling
-    // the channelId off each result surfaces smaller, more specific
-    // channels — the API equivalent of the course's long-tail-keyword +
-    // intitle: manual technique.
+    // names. Searching video titles (with intitle: or an exact quoted
+    // phrase) and pulling the channelId off each result surfaces smaller,
+    // more specific channels — the API equivalent of the course's manual
+    // long-tail-keyword + intitle:/quotes technique.
+    const query = searchMode === "intitle" ? `intitle:${niche}` : searchMode === "quotes" ? `"${niche}"` : niche;
     const searchParams: Record<string, string> = {
       part: "snippet",
       type: "video",
-      q: useIntitleOperator ? `intitle:${niche}` : niche,
+      q: query,
       // Over-fetch videos since multiple results often land on the same
       // channel — we need enough unique channelIds to fill maxCandidates.
       maxResults: String(Math.min(maxCandidates * 5, 50)),
@@ -398,6 +413,16 @@ export const findInfluencersTool = createTool({
         continue;
       }
 
+      let videoStats: Awaited<ReturnType<typeof getRecentVideoStats>>;
+      try {
+        videoStats = await getRecentVideoStats(channel.contentDetails.relatedPlaylists.uploads, videosPerChannel);
+      } catch (err: any) {
+        // One channel's video data failing (deleted/private videos, transient
+        // API errors) shouldn't abort the whole niche search — skip it and
+        // keep evaluating the rest of the candidate pool.
+        logDetail(`${label} — SKIPPED (couldn't fetch video stats: ${err.message ?? String(err)})`);
+        continue;
+      }
       const {
         avgViews,
         engagementRate,
@@ -407,7 +432,7 @@ export const findInfluencersTool = createTool({
         postingConsistency,
         daysSinceLastUpload,
         possibleFakeEngagement,
-      } = await getRecentVideoStats(channel.contentDetails.relatedPlaylists.uploads, videosPerChannel);
+      } = videoStats;
 
       // Course rule: "3-8% on smaller creators, 3% is healthy at 1M+ views."
       // A flat threshold lets small/hollow channels through on a loose bar
@@ -425,6 +450,23 @@ export const findInfluencersTool = createTool({
       }
       if (possibleFakeEngagement) {
         logDetail(`${label} — SKIPPED (possible fake/bought engagement — comment rate far below what real engagement of this size implies)`);
+        continue;
+      }
+
+      // Course qualification rule ("How to Qualify Influencers"): a
+      // sporadic/stale poster isn't a reliable partner for a multi-month
+      // campaign. This used to only be checked downstream in run.ts right
+      // before drafting — the discovery tool itself computed and tagged
+      // postingConsistency but never actually excluded sporadic candidates,
+      // so they still made it into found-candidates.json / the tracking
+      // sheet / the manager agent's results looking like real qualified
+      // candidates. Filtering here means every discovery path (web search,
+      // CLI, the manager agent) gets the same real qualification bar, not
+      // just the one CLI script that happened to check it last.
+      if (postingConsistency === "sporadic") {
+        logDetail(
+          `${label} — SKIPPED (sporadic posting${daysSinceLastUpload !== null ? ` — last upload ${daysSinceLastUpload}d ago` : ""}, not a reliable campaign partner)`,
+        );
         continue;
       }
 
@@ -502,6 +544,30 @@ export const findInfluencersTool = createTool({
     }
 
     logDetail(`final target list: ${results.length} channel(s)`);
+
+    // Record every candidate that passed the filters this run — the
+    // Excel/markdown export reads this log, not the tool's return value, so
+    // a search run from any entry point (web search box, CLI, the manager
+    // agent) ends up in the same place instead of only the caller that
+    // happened to ask seeing it.
+    await logFoundCandidates(
+      results.map((r) => ({
+        foundAt: new Date().toISOString(),
+        niche: r.niche,
+        channelId: r.channelId,
+        channelName: r.channelName,
+        subscribers: r.subscribers,
+        avgViews: r.avgViews,
+        engagementRate: r.engagementRate,
+        recentVideoTopic: r.recentVideoTopic,
+        postingConsistency: r.postingConsistency,
+        possibleFakeEngagement: r.possibleFakeEngagement,
+        contactEmail: r.contactHints.emails[0],
+        contactLink: r.contactHints.links[0],
+        sponsorBrandsMentioned: r.sponsorBrandsMentioned,
+        suggestedBrandsToOffer: r.suggestedBrandsToOffer,
+      })),
+    );
 
     setNode("find-influencers", "done", `${results.length} candidate(s) found`);
     return { results };

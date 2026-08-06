@@ -317,7 +317,7 @@
 
   <div id="tab-youtube" class="tab-panel active">
     <div class="search-row">
-      <input type="text" id="niche" placeholder='Niche, e.g. "fitness and gym"' />
+      <input type="text" id="niche" value="cybersecurity" placeholder='Niche or specific long-tail keyword, e.g. "SOC analyst day in the life"' />
       <button id="searchBtn">Search</button>
     </div>
 
@@ -350,7 +350,7 @@
         </div>
         <div>
           <label for="m-niche">Niche</label>
-          <input type="text" id="m-niche" placeholder='e.g. "halal fitness"' />
+          <input type="text" id="m-niche" value="cybersecurity" placeholder='e.g. "cybersecurity"' />
         </div>
         <div>
           <label for="m-followers">Followers (optional)</label>
@@ -381,8 +381,12 @@
       <button id="inf-checkRepliesBtn">Check for replies</button>
       <button id="inf-reportBtn" class="secondary">View report</button>
       <button id="inf-mdBtn" class="secondary">Regenerate INFLUENCERS.md</button>
+      <button id="inf-sheetBtn" class="secondary">Open tracking sheet ↗</button>
+      <button id="inf-excelBtn" class="secondary">Download Influencers.xlsx</button>
+      <button id="inf-gsheetBtn" class="secondary">Sync to Google Sheet</button>
       <button id="inf-dashboardBtn" class="secondary">Open live dashboard ↗</button>
     </div>
+    <div id="inf-gsheetStatus" class="status-msg"></div>
     <div id="inf-checkRepliesStatus" class="status-msg"></div>
     <div id="inf-replies"></div>
     <div id="inf-reportBox"></div>
@@ -971,6 +975,12 @@ function negotiateCard(channelId, channelName, initialMessage, autoOpen) {
           <label>Recent video view counts, comma-separated (optional, for CPM baseline)</label>
           <input type="text" class="r-views" placeholder="120000, 95000, 140000" />
         </div>
+        <div class="full">
+          <label>Audience note from their media kit (optional — top countries, age split, gender split — used as real negotiating leverage, not just info)</label>
+          <textarea class="r-audienceNote" placeholder="e.g. 65% US, 20% UK, mostly 25-34, 70% male"></textarea>
+          <button class="secondary r-saveAudienceBtn" type="button">Save note</button>
+          <span class="r-audienceStatus status-msg"></span>
+        </div>
       </div>
       <button class="r-draftBtn">Draft reply</button>
       <div class="r-draftContainer"></div>
@@ -983,6 +993,32 @@ function negotiateCard(channelId, channelName, initialMessage, autoOpen) {
   openBtn.addEventListener("click", () => {
     form.classList.toggle("open");
   });
+
+  const audienceNoteEl = div.querySelector(".r-audienceNote");
+  const audienceStatusEl = div.querySelector(".r-audienceStatus");
+  fetch(`/api/negotiate/context/${encodeURIComponent(channelId)}`)
+    .then((r) => r.json())
+    .then((context) => {
+      if (context.state?.audienceNote) audienceNoteEl.value = context.state.audienceNote;
+    })
+    .catch(() => {});
+
+  async function saveAudienceNote() {
+    const audienceNote = audienceNoteEl.value.trim();
+    try {
+      await fetch("/api/negotiate/audience-note", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId, channelName, audienceNote }),
+      });
+      audienceStatusEl.textContent = "Saved.";
+      audienceStatusEl.className = "r-audienceStatus status-msg ok";
+    } catch (err) {
+      audienceStatusEl.textContent = "Failed to save: " + err.message;
+      audienceStatusEl.className = "r-audienceStatus status-msg err";
+    }
+  }
+  div.querySelector(".r-saveAudienceBtn").addEventListener("click", saveAudienceNote);
 
   // No message handed in up front (the persistent per-row "Draft reply"
   // case, as opposed to right after "Check for replies" detects one) — pull
@@ -1025,6 +1061,11 @@ function negotiateCard(channelId, channelName, initialMessage, autoOpen) {
     draftBtn.disabled = true;
     draftBtn.textContent = "Drafting…";
     try {
+      // Persist the audience note first — the negotiation agent reads it
+      // from saved state (getNegotiationState), not from this request body,
+      // so a note typed but never explicitly saved would otherwise be
+      // silently invisible to the draft that's about to be generated.
+      await saveAudienceNote();
       const contextRes = await fetch(`/api/negotiate/context/${encodeURIComponent(channelId)}`);
       const context = await contextRes.json();
       const to = context.lastSend?.to;
@@ -1168,6 +1209,59 @@ infMdBtn.addEventListener("click", async () => {
   } finally {
     infMdBtn.disabled = false;
     infMdBtn.textContent = "Regenerate INFLUENCERS.md";
+  }
+});
+
+document.getElementById("inf-sheetBtn").addEventListener("click", () => {
+  window.open("/sheet", "_blank");
+});
+
+const infGsheetBtn = document.getElementById("inf-gsheetBtn");
+const infGsheetStatus = document.getElementById("inf-gsheetStatus");
+infGsheetBtn.addEventListener("click", async () => {
+  infGsheetBtn.disabled = true;
+  infGsheetBtn.textContent = "Syncing…";
+  try {
+    const res = await fetch("/api/sync-sheet", { method: "POST" });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    infGsheetStatus.innerHTML = `Synced ${data.found} found / ${data.contacted} contacted to your Google Sheet. <a href="${data.url}" target="_blank">Open it ↗</a>`;
+    infGsheetStatus.className = "status-msg ok";
+  } catch (err) {
+    infGsheetStatus.textContent = "Failed: " + err.message;
+    infGsheetStatus.className = "status-msg err";
+  } finally {
+    infGsheetBtn.disabled = false;
+    infGsheetBtn.textContent = "Sync to Google Sheet";
+  }
+});
+
+const infExcelBtn = document.getElementById("inf-excelBtn");
+infExcelBtn.addEventListener("click", async () => {
+  infExcelBtn.disabled = true;
+  infExcelBtn.textContent = "Building…";
+  try {
+    const res = await fetch("/api/influencers-excel");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "Influencers.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    infMdStatus.textContent = `Downloaded Influencers.xlsx (${res.headers.get("X-Found-Count") ?? "?"} found, ${
+      res.headers.get("X-Contacted-Count") ?? "?"
+    } contacted).`;
+    infMdStatus.className = "status-msg ok";
+  } catch (err) {
+    infMdStatus.textContent = "Failed: " + err.message;
+    infMdStatus.className = "status-msg err";
+  } finally {
+    infExcelBtn.disabled = false;
+    infExcelBtn.textContent = "Download Influencers.xlsx";
   }
 });
 

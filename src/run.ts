@@ -50,7 +50,7 @@ function parseDraft(text: string): { subject: string; body: string } {
 async function main() {
   const args = process.argv.slice(2);
   const liveSend = args.includes("--send");
-  const niche = args.find((a) => !a.startsWith("--")) ?? "reverse type 2 diabetes";
+  const niche = args.find((a) => !a.startsWith("--")) ?? "cybersecurity"; // official niche
 
   if (!liveSend) {
     console.log("Dry run (no --send flag) — will discover, draft, and get supervisor approval, but will NOT send any email.\n");
@@ -69,7 +69,7 @@ async function main() {
   const findResult = await runTool(findInfluencersTool, {
     niche,
     minSubscribers: 50_000,
-    maxSubscribers: 5_000_000,
+    maxSubscribers: 500_000,
     minEngagementRate: 0.01,
     minAvgViews: 50_000,
     maxCandidates: 50,

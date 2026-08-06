@@ -1,6 +1,7 @@
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { getAllContactedCreators } from "./tracking/outreach-log";
 
 // Rebuilds INFLUENCERS.md from outreach-log.json every time this runs — a
@@ -51,8 +52,12 @@ export function writeInfluencersMarkdown(): number {
 
 // Only actually runs the CLI entry point when invoked directly (`npm run
 // influencers-md`) — importing writeInfluencersMarkdown from the web server
-// must not also trigger this file's own top-level write.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// must not also trigger this file's own top-level write. Compared via
+// fileURLToPath rather than a raw string match against `file://${argv[1]}`
+// — this project's own directory name has a space in it, which import.meta.url
+// percent-encodes (%20) but argv[1] never does, so the naive string
+// comparison silently never matched and this guard never fired.
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const count = writeInfluencersMarkdown();
   console.log(`Wrote ${count} creator(s) to ${OUTPUT_FILE}`);
 }
