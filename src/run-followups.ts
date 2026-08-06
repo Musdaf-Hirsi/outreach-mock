@@ -52,11 +52,12 @@ async function main() {
   const notYetDue = queue.filter((c) => !c.due && !c.needsNewThread);
 
   console.log(`\n=== Follow-up queue ===`);
-  console.log(`Due now: ${due.length} | Not yet due: ${notYetDue.length} | Needs new thread (7 unanswered): ${needingNewThread.length}\n`);
+  console.log(`Due now: ${due.length} | Not yet due: ${notYetDue.length} | Needs new thread (2 unanswered): ${needingNewThread.length}\n`);
 
   if (needingNewThread.length > 0) {
-    console.log(`These threads hit 7 follow-ups with no reply. Per the FAQ, don't send an 8th nudge in`);
-    console.log(`the same thread — start a fresh email with a different subject line and angle instead`);
+    console.log(`These threads hit the 2-follow-up cap with no reply. Per the 2026 deliverability update, a`);
+    console.log(`longer sequence is itself a spam signal — don't send a 3rd nudge in the same thread, start a`);
+    console.log(`fresh email with a different subject line and angle instead`);
     console.log(`(e.g. offer a specific deal, or mention you're managing other creators/brands now):`);
     for (const c of needingNewThread) {
       console.log(`  - ${c.channelName} (${c.niche}) — last sent ${c.lastSentAt.slice(0, 10)}`);

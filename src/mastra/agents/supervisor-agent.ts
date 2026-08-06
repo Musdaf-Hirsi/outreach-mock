@@ -116,6 +116,13 @@ Formatting/tone checks (em dashes, AI vocabulary, neediness) apply to both.
     confident. REJECT if it also tries to counter a price or ask a
     qualifying question in the same message — handling the objection is
     its own single idea, same one-ask-per-reply discipline as rule 18.
+20. No first-round acceptance — REJECT if the negotiation round is 1, the
+    creator quoted a price, and the reply accepts it outright (ACTION
+    "accept" or body language like "sounds good," "that works," "let's do
+    it") with no counter at all. Even a fair or underpriced quote gets at
+    least a soft, dealbreaker-framed counter in round 1 — accepting a first
+    price outright is the single most common inexperience tell per the
+    course, worse than reacting with excitement to it.
 
 Respond in EXACTLY this format, nothing else before or after:
 DECISION: APPROVE

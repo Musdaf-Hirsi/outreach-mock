@@ -26,11 +26,12 @@ import {
   setCreatorRating,
   markReplied,
 } from "../tracking/outreach-log";
-import { checkForReplies, getLastReplyBody } from "../gmail/check-replies";
+import { checkForReplies, getLastReplyBody, scanClosedThreadsForInboundActivity } from "../gmail/check-replies";
 import { computeBaselineViews, evaluateQuote, estimateFairPrice } from "../pricing/cpm-calculator";
 import { sanitizeHumanText } from "../utils/sanitize-text";
 import { runTool } from "../utils/run-tool";
 import { findFabricatedBrands } from "../utils/brand-guard";
+import { mentionsGoldenCountry } from "../utils/audience-check";
 import { writeInfluencersMarkdown } from "../report-influencers";
 import { writeInfluencersExcel } from "../report-excel";
 import { getAllFoundCandidatesDeduped } from "../tracking/found-candidates-log";
@@ -432,6 +433,9 @@ app.post("/api/negotiate/draft", async (req, res) => {
     if (state.audienceNote) {
       pricingContext += `\nAudience note (from a real media kit check): ${state.audienceNote}`;
     }
+    if (process.env.AGENCY_SERVICES_OFFERED) {
+      pricingContext += `\nServices this agency can offer beyond the intro (only relevant if negotiating with an agency contact): ${process.env.AGENCY_SERVICES_OFFERED}`;
+    }
 
     let feedback = "";
     let body = "";
@@ -487,9 +491,10 @@ app.post("/api/negotiate/send", async (req, res) => {
     return;
   }
   try {
+    const lastSend = getLastSendInfo(channelId);
     const sendResult = await runTool(sendEmailTool, {
       to,
-      subject: `Re: ${channelName ?? channelId}`,
+      subject: `Re: ${lastSend?.subject ?? channelName ?? channelId}`,
       body,
       channelName,
       niche,
@@ -504,7 +509,29 @@ app.post("/api/negotiate/send", async (req, res) => {
         quotedPrice: quotedPrice ? Number(quotedPrice) : undefined,
         dealStatus,
       });
-      res.json({ ...sendResult, dealStatus: state.dealStatus, negotiationRound: state.negotiationRound });
+      // Course rule ("Closed an influencer, now what?"): "closed" isn't
+      // just a reply saying yes — it means pricing and audience info are
+      // actually on file. This is a warning, not a block: the human can
+      // still legitimately close without a media kit and go get one after,
+      // but it shouldn't happen silently.
+      const closeWarnings: string[] = [];
+      if (dealStatus === "closed") {
+        if (!state.lastQuotedPrice) closeWarnings.push("no price on file for this deal yet");
+        if (!state.audienceNote) closeWarnings.push("no audience/media-kit note on file yet");
+        // Course rule ("What are media kits"): none of the golden countries
+        // (US/UK/Canada/Australia) in the top-3 audience is a "run away"
+        // red flag for an English-language campaign — worth catching before
+        // this reaches the brand phase, not after.
+        else if (!mentionsGoldenCountry(state.audienceNote)) {
+          closeWarnings.push("audience note doesn't mention a high-purchasing-power country (US/UK/Canada/Australia)");
+        }
+      }
+      res.json({
+        ...sendResult,
+        dealStatus: state.dealStatus,
+        negotiationRound: state.negotiationRound,
+        closeWarnings: closeWarnings.length > 0 ? closeWarnings : undefined,
+      });
     } else {
       res.json(sendResult);
     }
@@ -684,7 +711,18 @@ app.post("/api/check-replies", async (_req, res) => {
   try {
     const openCount = getActiveThreads().length;
     const replies = await checkForReplies();
-    res.json({ openCount, replies });
+    // Course technique ("Closed an influencer, now what?"): also scan closed
+    // deals for the creator following up on their own — frequent unprompted
+    // post-close check-ins are a neediness signal, real leverage for a
+    // future repricing conversation. Non-fatal: a scan failure shouldn't
+    // hide the real (pre-close) replies this endpoint already found.
+    let closedActivity: Awaited<ReturnType<typeof scanClosedThreadsForInboundActivity>> = [];
+    try {
+      closedActivity = await scanClosedThreadsForInboundActivity();
+    } catch (err: any) {
+      console.error(`Closed-thread inbound scan failed (non-fatal): ${err.message ?? err}`);
+    }
+    res.json({ openCount, replies, closedActivity });
   } catch (err: any) {
     res.status(500).json({ error: err.message ?? String(err) });
   }

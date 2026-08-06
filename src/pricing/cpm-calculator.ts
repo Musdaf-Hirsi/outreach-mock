@@ -30,6 +30,15 @@ export interface CpmRange {
 // Rough per-niche YouTube CPM ranges from the course, explicitly framed as
 // ballpark guides, not fixed rules. Niche matching is a simple substring
 // lookup against these keys — good enough for a first pass, not exhaustive.
+//
+// The course itself gives two different tables across two lessons
+// ("Understanding Influencer Pricing" and "How to Price Influencers Step-
+// by-Step") that don't fully agree — this takes the union where they
+// overlap and defers to whichever lesson actually covers a niche the other
+// doesn't. Two corrections from an earlier version of this table that
+// didn't match either lesson: education's floor was 10 (neither lesson
+// says lower than 25), and gaming/food were missing entirely and fell
+// through to the default.
 export const NICHE_CPM_BENCHMARKS: Record<string, CpmRange> = {
   tech: { min: 20, max: 50 },
   gadgets: { min: 20, max: 50 },
@@ -41,11 +50,19 @@ export const NICHE_CPM_BENCHMARKS: Record<string, CpmRange> = {
   lifestyle: { min: 10, max: 25 },
   beauty: { min: 10, max: 25 },
   travel: { min: 12, max: 20 },
-  education: { min: 10, max: 40 },
+  education: { min: 25, max: 40 },
   luxury: { min: 30, max: 50 },
+  gaming: { min: 10, max: 20 },
+  food: { min: 10, max: 20 },
+  cooking: { min: 10, max: 20 },
 };
 
-const DEFAULT_CPM_RANGE: CpmRange = { min: 10, max: 30 };
+// Course lesson ("How do influencers get paid: CPM vs Straight"): the
+// generic unknown-niche range is $5-15, most creators landing $5-10 — this
+// used to default to {10, 30}, roughly double the course's own intro-level
+// number, which biased every unmatched-niche counter upward instead of
+// toward the course's stated floor.
+const DEFAULT_CPM_RANGE: CpmRange = { min: 5, max: 15 };
 
 export function getNicheCpmRange(niche: string): CpmRange {
   const key = niche.trim().toLowerCase();
@@ -123,8 +140,15 @@ export function evaluateQuote(
   else verdict = "fair";
 
   // Standard negotiation target: 20-50% off a fairly-priced quote; more
-  // aggressive discounts (40-80% off) when clearly overpriced.
-  const [loPct, hiPct] = verdict === "overpriced" ? [0.4, 0.8] : [0.2, 0.5];
+  // aggressive discounts (40-80% off) when clearly overpriced. Underpriced
+  // is its own case, not "fair" — course rule ("How to Price Influencers
+  // Step-by-Step"): lock in a bargain at or slightly below their own
+  // number (0-20% off) rather than squeezing further. Negotiating hard on
+  // an already-cheap quote risks exposing that they're underpriced and
+  // losing the deal — the margin here comes from the brand-side markup,
+  // not from further discounting the creator.
+  const [loPct, hiPct] =
+    verdict === "overpriced" ? [0.4, 0.8] : verdict === "underpriced" ? [0.0, 0.2] : [0.2, 0.5];
   const suggestedCounterRange = {
     min: Math.round(quotedPrice * (1 - hiPct)),
     max: Math.round(quotedPrice * (1 - loPct)),

@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import { getAuthorizedGmailClient } from "./auth";
-import { getActiveThreads, markReplied } from "../tracking/outreach-log";
+import { getActiveThreads, markReplied, getClosedThreadsForInboundScan, recordInboundCheckIns } from "../tracking/outreach-log";
 
 // Requires the gmail.readonly scope added in auth.ts — an existing
 // gmail-token.json authorized before that scope was added won't have it;
@@ -141,4 +141,73 @@ export async function checkForReplies(): Promise<DetectedReply[]> {
   }
 
   return detected;
+}
+
+export interface InboundCheckInActivity {
+  channelId: string;
+  channelName: string;
+  newMessageCount: number;
+  totalInboundCheckIns: number;
+}
+
+// Scans every closed-deal thread for messages the creator sent after the
+// last scan — course technique ("Closed an influencer, now what?"):
+// frequent unprompted follow-ups from an already-closed creator is a
+// neediness signal, real leverage for a future repricing conversation. This
+// is deliberately separate from checkForReplies: that function only ever
+// looks at threads still waiting on their FIRST reply, so a closed deal
+// (which by definition already replied once during negotiation) is
+// permanently invisible to it — there was previously no way to detect a
+// creator pinging you again after close at all.
+export async function scanClosedThreadsForInboundActivity(): Promise<InboundCheckInActivity[]> {
+  const auth = await getAuthorizedGmailClient();
+  const gmail = google.gmail({ version: "v1", auth });
+
+  const profile = await gmail.users.getProfile({ userId: "me" });
+  const myEmail = profile.data.emailAddress;
+  if (!myEmail) {
+    throw new Error("Could not determine the authorized Gmail address (getProfile returned no emailAddress).");
+  }
+
+  const threads = getClosedThreadsForInboundScan();
+  const activity: InboundCheckInActivity[] = [];
+  const scannedAt = new Date().toISOString();
+
+  for (const thread of threads) {
+    const gmailThread = await gmail.users.threads.get({
+      userId: "me",
+      id: thread.gmailThreadId,
+      format: "metadata",
+      metadataHeaders: ["From"],
+    });
+    const messages = gmailThread.data.messages ?? [];
+
+    // No prior scan watermark: this is the first time we've looked at this
+    // closed thread. Don't retroactively count the entire pre-close
+    // negotiation history as "neediness" — just establish the watermark so
+    // only genuinely new messages count from here on.
+    const sinceMs = thread.lastInboundScanAt ? new Date(thread.lastInboundScanAt).getTime() : Date.now();
+
+    let newMessageCount = 0;
+    for (const message of messages) {
+      const fromHeader = message.payload?.headers?.find((h) => h.name === "From")?.value;
+      if (!fromHeader || extractEmailAddress(fromHeader) === myEmail.toLowerCase()) continue;
+      const internalMs = Number(message.internalDate ?? 0);
+      if (internalMs > sinceMs) newMessageCount++;
+    }
+
+    if (newMessageCount > 0 || !thread.lastInboundScanAt) {
+      const state = await recordInboundCheckIns(thread.channelId, newMessageCount, scannedAt);
+      if (newMessageCount > 0) {
+        activity.push({
+          channelId: thread.channelId,
+          channelName: thread.channelName,
+          newMessageCount,
+          totalInboundCheckIns: state.inboundCheckInsReceived ?? 0,
+        });
+      }
+    }
+  }
+
+  return activity;
 }

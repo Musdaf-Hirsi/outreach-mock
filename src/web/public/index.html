@@ -1143,6 +1143,9 @@ function negotiateCard(channelId, channelName, initialMessage, autoOpen) {
           const sendResult = await sendRes.json();
           if (sendResult.error) throw new Error(sendResult.error);
           statusMsg.textContent = `Sent! Deal status: ${sendResult.dealStatus ?? "n/a"}.`;
+          if (sendResult.closeWarnings?.length) {
+            statusMsg.textContent += ` Closed with gaps: ${sendResult.closeWarnings.join(", ")} — worth filling in before this reaches the brand phase.`;
+          }
           statusMsg.className = "status-msg ok";
           sendBtn.remove();
           discardBtn.remove();

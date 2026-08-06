@@ -177,6 +177,9 @@ export const draftReplyForCreatorTool = createTool({
     if (state.audienceNote) {
       pricingContext += `\nAudience note (from a real media kit check): ${state.audienceNote}`;
     }
+    if (process.env.AGENCY_SERVICES_OFFERED) {
+      pricingContext += `\nServices this agency can offer beyond the intro (only relevant if negotiating with an agency contact): ${process.env.AGENCY_SERVICES_OFFERED}`;
+    }
 
     let feedback = "";
     let body = "";

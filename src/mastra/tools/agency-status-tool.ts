@@ -5,6 +5,8 @@ import {
   getFollowUpQueue,
   getCheckInsDue,
   getAllContactedCreators,
+  getExclusivityCandidates,
+  getNeedinessSignals,
 } from "../../tracking/outreach-log";
 import { getAllFoundCandidatesDeduped } from "../../tracking/found-candidates-log";
 
@@ -22,7 +24,9 @@ export const agencyStatusTool = createTool({
     "(due now, not yet due, needs a fresh thread), post-close check-ins due, every creator ever contacted with " +
     "their platform, niche, deal status, and reply state, and every real candidate ever found by a search " +
     "(find-candidates-for-niche / the web UI's Search box) that hasn't been contacted yet — the 'Found " +
-    "Candidates' list from Influencers.xlsx / the tracking sheet.",
+    "Candidates' list from Influencers.xlsx / the tracking sheet, and every creator who has completed 2+ real " +
+    "deals on the discount path and hasn't been moved to an exclusive-management relationship yet (course " +
+    "technique: 'The 2 Different Paths' — revisit exclusivity after a few successful discount deals).",
   inputSchema: z.object({}),
   outputSchema: z.object({
     milestone: z.object({
@@ -63,6 +67,11 @@ export const agencyStatusTool = createTool({
         contactEmail: z.string().optional(),
       }),
     ),
+    exclusivityCandidates: z.array(z.object({ channelName: z.string(), dealsCompleted: z.number() })),
+    needinessSignals: z.array(z.object({ channelName: z.string(), inboundCheckInsReceived: z.number() })).describe(
+      "Closed creators who have followed up unprompted 3+ times since close — course technique: a real signal, " +
+        "usable as leverage in a future repricing conversation.",
+    ),
   }),
   execute: async () => {
     const milestone = getMilestoneStatus();
@@ -71,6 +80,8 @@ export const agencyStatusTool = createTool({
     const creators = getAllContactedCreators();
     const contactedNames = new Set(creators.map((c) => c.channelName));
     const found = getAllFoundCandidatesDeduped().filter((c) => !contactedNames.has(c.channelName));
+    const exclusivityCandidates = getExclusivityCandidates();
+    const needinessSignals = getNeedinessSignals();
 
     return {
       milestone,
@@ -100,6 +111,8 @@ export const agencyStatusTool = createTool({
         engagementRate: c.engagementRate,
         contactEmail: c.contactEmail,
       })),
+      exclusivityCandidates,
+      needinessSignals,
     };
   },
 });

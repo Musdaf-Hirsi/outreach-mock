@@ -35,6 +35,12 @@ interface OutreachEntry {
   channelName: string;
   to: string;
   niche: string;
+  // The real subject line this specific email was sent with. Absent on
+  // entries logged before this field existed — replies to those threads
+  // fall back to a channelName-based subject, which reads as slightly
+  // more templated but isn't actually wrong on an existing thread (Gmail
+  // threads by In-Reply-To/References, not by subject text matching).
+  subject?: string;
   // Absent = "youtube", for entries logged before this field existed (the
   // pipeline was YouTube-only at first) — TikTok/Instagram candidates are
   // entered manually (no public discovery API for either), so this is set
@@ -86,6 +92,40 @@ export interface NegotiationState {
   // used to auto-skip a candidate — partial coverage (only candidates
   // someone bothered to check) shouldn't masquerade as a real filter.
   audienceNote?: string;
+  // Course technique ("The 2 Different Paths You Can Take"): every
+  // relationship starts on the discount path (broker a lower price,
+  // upsell to brands). "exclusive" is a later upsell — becoming this
+  // creator's manager for a commission — offered after a few successful
+  // discount deals, never as an opening move. commissionPct only applies
+  // once relationshipType is "exclusive".
+  relationshipType?: "discount" | "exclusive";
+  commissionPct?: number;
+  // How many deals have actually closed with this creator — the course's
+  // trigger for revisiting exclusivity is "after 2-3 successful deals."
+  dealsCompleted?: number;
+  // Course technique ("CPM vs Straight" / "Understanding Influencer
+  // Pricing"): a deal is either a flat fixed price, pure CPM
+  // (performance-based, paid per view up to a cap), or a hybrid (flat +
+  // performance bonus) — distinct from the CPM benchmark math in
+  // cpm-calculator.ts, which is used to evaluate a flat quote's fairness
+  // regardless of which structure the actual deal ends up using.
+  dealType?: "flat" | "cpm" | "hybrid";
+  cpmRate?: number; // $ per 1,000 views, only meaningful for "cpm"/"hybrid"
+  viewCap?: number; // course rule: CPM deals are capped, not open-ended
+  monitoringDays?: number; // course default 30, negotiable to 60-90
+  // How many times a CLOSED creator has followed up on their own with no
+  // real news to report — course technique ("Closed an influencer, now
+  // what?"): frequent unprompted check-ins from an already-closed creator
+  // is a neediness signal you can use as leverage to renegotiate future
+  // deals down ("less money per deal, way more deals"). Incremented by
+  // check-replies.ts when a reply lands on a closed thread with no
+  // deliverable news; distinct from checkInsSent, which counts YOUR
+  // outgoing check-ins, not theirs.
+  inboundCheckInsReceived?: number;
+  // Watermark for the closed-thread inbound scan (getClosedThreadsForInboundScan
+  // / recordInboundCheckIns) — the last time this thread was checked for new
+  // messages from the creator, so re-scans only count genuinely new ones.
+  lastInboundScanAt?: string;
   updatedAt: string; // ISO
 }
 
@@ -96,7 +136,24 @@ interface OutreachStore {
 
 function loadStore(): OutreachStore {
   if (fs.existsSync(STORE_FILE)) {
-    const parsed = JSON.parse(fs.readFileSync(STORE_FILE, "utf-8"));
+    const raw = fs.readFileSync(STORE_FILE, "utf-8");
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      // A truncated/corrupted file (e.g. a crash mid-write, before the
+      // atomic-rename fix in saveStore below existed) used to throw a raw
+      // JSON.parse error here and take down every caller — including
+      // read-only ones like the status tool that have no reason to fail
+      // just because the store is unreadable. Fail with a message that
+      // actually says what's wrong and where, instead of a bare "Unexpected
+      // token" pointing at JSON.parse.
+      throw new Error(
+        `${STORE_FILE} is corrupted and can't be parsed as JSON (${(err as Error).message}). ` +
+          `If a recent run crashed mid-write, check for a .tmp file next to it or restore from a backup — ` +
+          `this file is not safe to auto-repair.`,
+      );
+    }
     // Older outreach-log.json files predate the merge and have no
     // `channels` key at all — treat that as "no negotiation state yet"
     // rather than a migration case (the real migration case, a standalone
@@ -115,8 +172,17 @@ function loadStore(): OutreachStore {
   return { entries: [], channels };
 }
 
+// Write to a temp file then rename over the real one — rename is atomic on
+// the same filesystem, so a crash mid-write leaves either the old complete
+// file or the new complete file, never a half-written one that the next
+// loadStore() call chokes on. A plain writeFileSync has no such guarantee:
+// a process killed mid-write (crash, OOM, power loss) can leave a truncated
+// file that permanently corrupts the store until someone notices and fixes
+// it by hand.
 function saveStore(store: OutreachStore) {
-  fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2));
+  const tmpFile = `${STORE_FILE}.tmp`;
+  fs.writeFileSync(tmpFile, JSON.stringify(store, null, 2));
+  fs.renameSync(tmpFile, STORE_FILE);
 }
 
 // Returns the current negotiation state for a channel, defaulting to a
@@ -187,7 +253,14 @@ export async function recordNegotiationRound(
   // Course rule: once provisionally closed, set and honor a specific
   // next-steps timeline rather than going silent — start that clock the
   // moment the deal first flips to "closed," not on every subsequent update.
-  const timelineSetAt = dealStatus === "closed" && !current.timelineSetAt ? new Date().toISOString() : current.timelineSetAt;
+  const justClosed = dealStatus === "closed" && current.dealStatus !== "closed";
+  const timelineSetAt = justClosed && !current.timelineSetAt ? new Date().toISOString() : current.timelineSetAt;
+  // Course technique ("The 2 Different Paths"): counts real closes so the
+  // status tooling can flag "candidate for an exclusivity conversation"
+  // after 2-3 deals — only counts a fresh cold->closed or
+  // negotiating->closed transition, not every subsequent negotiation round
+  // on an already-closed thread (e.g. a repricing conversation).
+  const dealsCompleted = justClosed ? (current.dealsCompleted ?? 0) + 1 : current.dealsCompleted;
 
   return updateNegotiationState(channelId, {
     channelName: update.channelName ?? current.channelName,
@@ -196,6 +269,7 @@ export async function recordNegotiationRound(
     lastCounterOffered: update.counterOffered ?? current.lastCounterOffered,
     dealStatus,
     timelineSetAt,
+    dealsCompleted,
   });
 }
 
@@ -247,6 +321,57 @@ export function getCheckInsDue(now: Date = new Date()): CheckInCandidate[] {
   }
 
   return candidates;
+}
+
+export interface ExclusivityCandidate {
+  channelId: string;
+  channelName: string;
+  dealsCompleted: number;
+}
+
+// Course technique ("The 2 Different Paths You Can Take"): after 2-3
+// successful discount deals with an unmanaged creator, revisit whether to
+// offer exclusive management instead of staying on the per-deal discount
+// path. This never auto-switches relationshipType — it's a surfaced
+// suggestion for a human decision, not an automated transition.
+const EXCLUSIVITY_DEALS_THRESHOLD = 2;
+
+export function getExclusivityCandidates(): ExclusivityCandidate[] {
+  const store = loadStore();
+  const candidates: ExclusivityCandidate[] = [];
+  for (const state of Object.values(store.channels)) {
+    if (state.relationshipType === "exclusive") continue;
+    const dealsCompleted = state.dealsCompleted ?? 0;
+    if (dealsCompleted >= EXCLUSIVITY_DEALS_THRESHOLD) {
+      candidates.push({ channelId: state.channelId, channelName: state.channelName, dealsCompleted });
+    }
+  }
+  return candidates;
+}
+
+export interface NeedinessSignal {
+  channelId: string;
+  channelName: string;
+  inboundCheckInsReceived: number;
+}
+
+// Course technique ("Closed an influencer, now what?"): a closed creator
+// who keeps pinging you unprompted is a real signal, not just noise — use
+// it as leverage in a future repricing conversation ("less money per deal,
+// way more deals"). Threshold matches the course's own framing ("if they
+// follow up too often").
+const NEEDINESS_THRESHOLD = 3;
+
+export function getNeedinessSignals(): NeedinessSignal[] {
+  const store = loadStore();
+  const signals: NeedinessSignal[] = [];
+  for (const state of Object.values(store.channels)) {
+    const count = state.inboundCheckInsReceived ?? 0;
+    if (state.dealStatus === "closed" && count >= NEEDINESS_THRESHOLD) {
+      signals.push({ channelId: state.channelId, channelName: state.channelName, inboundCheckInsReceived: count });
+    }
+  }
+  return signals;
 }
 
 // Call once a post-close check-in message has actually been sent.
@@ -343,13 +468,21 @@ export function getFollowUpQueue(now: Date = new Date()): FollowUpCandidate[] {
     const needsNewThread = followUpNumber > MAX_FOLLOW_UPS_PER_THREAD;
     const nextDue = nextFollowUpDate(new Date(last.timestamp), followUpNumber);
 
+    // Reuse the ORIGINAL first-contact email's subject, not the last
+    // entry's — a follow-up reply should read "Re: <the actual subject
+    // your first email had>", not "Re: <a follow-up subject>" (which would
+    // double up) or "Re: <channel name>" (which isn't the real subject at
+    // all — a bug this replaces: the recipient's inbox would show a "Re:"
+    // line that doesn't match the thread they actually started).
+    const initialSubject = sinceInitial[0]?.subject;
+
     queue.push({
       channelId,
       channelName: last.channelName,
       niche: last.niche,
       to: last.to,
       lastSentAt: last.timestamp,
-      lastSubjectContext: last.channelName,
+      lastSubjectContext: initialSubject ?? last.channelName,
       followUpNumber,
       // With only 2 follow-ups allowed total (see MAX_FOLLOW_UPS_PER_THREAD),
       // there's no room for a long "light for a while, then heavy" ramp —
@@ -398,6 +531,53 @@ export function getActiveThreads(): ActiveThread[] {
     threads.push({ channelId, channelName: last.channelName, niche: last.niche, to: last.to, gmailThreadId: last.gmailThreadId });
   }
   return threads;
+}
+
+export interface ClosedThreadForInboundScan {
+  channelId: string;
+  channelName: string;
+  gmailThreadId: string;
+  lastInboundScanAt?: string;
+}
+
+// Every closed-deal thread that has a Gmail thread id on file — the input
+// to scanning for inbound messages the creator sent *after* close. This is
+// deliberately separate from getActiveThreads: that function only tracks
+// threads still waiting on the FIRST reply (last.replied is false), so a
+// closed deal — which by definition already got at least one reply during
+// negotiation — is invisible to it. Without this, there was no way to ever
+// detect a creator following up again post-close (course technique:
+// frequent unprompted post-close check-ins are a neediness signal you can
+// use as renegotiation leverage — see inboundCheckInsReceived).
+export function getClosedThreadsForInboundScan(): ClosedThreadForInboundScan[] {
+  const store = loadStore();
+  const byChannel = new Map<string, OutreachEntry[]>();
+  for (const entry of store.entries) {
+    const list = byChannel.get(entry.channelId) ?? [];
+    list.push(entry);
+    byChannel.set(entry.channelId, list);
+  }
+
+  const threads: ClosedThreadForInboundScan[] = [];
+  for (const [channelId, entries] of byChannel) {
+    const last = entries[entries.length - 1];
+    const state = store.channels[channelId];
+    if (!state || state.dealStatus !== "closed") continue;
+    if (!last.gmailThreadId) continue;
+    threads.push({ channelId, channelName: last.channelName, gmailThreadId: last.gmailThreadId, lastInboundScanAt: state.lastInboundScanAt });
+  }
+  return threads;
+}
+
+// Call after scanning a closed thread for new inbound messages from the
+// creator — bumps the running count and moves the scan watermark forward
+// so the same message is never double-counted on the next scan.
+export async function recordInboundCheckIns(channelId: string, newMessageCount: number, scannedAt: string): Promise<NegotiationState> {
+  const current = getNegotiationState(channelId);
+  return updateNegotiationState(channelId, {
+    inboundCheckInsReceived: (current.inboundCheckInsReceived ?? 0) + newMessageCount,
+    lastInboundScanAt: scannedAt,
+  });
 }
 
 export interface ContactedCreatorSummary {
@@ -471,6 +651,7 @@ export interface LastSendInfo {
   to: string;
   niche: string;
   channelName: string;
+  subject?: string; // the original first-contact email's subject, for a real "Re: <subject>"
   gmailThreadId?: string;
   rfcMessageId?: string;
 }
@@ -483,19 +664,33 @@ export function getLastSendInfo(channelId: string): LastSendInfo | undefined {
   const matches = store.entries.filter((e) => e.channelId === channelId);
   if (matches.length === 0) return undefined;
   const last = matches[matches.length - 1];
+  // Real subject comes from the ORIGINAL first-contact email in this
+  // thread, not the most recent entry — a reply's own subject (if it even
+  // has one on file) isn't what the recipient's inbox thread is titled.
+  const initial = [...matches].reverse().find((e) => (e.kind ?? "initial") === "initial");
   return {
     to: last.to,
     niche: last.niche,
     channelName: last.channelName,
+    subject: initial?.subject,
     gmailThreadId: last.gmailThreadId,
     rfcMessageId: last.rfcMessageId,
   };
 }
 
+// PROGRAM_START_DATE is a bare "YYYY-MM-DD" string, which `new Date(...)`
+// parses as UTC midnight — comparing that against a local `now` could be
+// off by a day depending on the machine's timezone offset from UTC (e.g.
+// programDay flipping over at 8pm or 4am local instead of local midnight).
+// Parsing both sides as local calendar dates keeps the day count anchored
+// to local midnight either way, matching workdays.ts's own local-day
+// correctness elsewhere in this module.
 function daysSinceStart(): number {
-  const start = new Date(PROGRAM_START_DATE);
+  const [y, m, d] = PROGRAM_START_DATE.split("-").map(Number);
+  const start = new Date(y, m - 1, d);
   const now = new Date();
-  return Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 export interface MilestoneStatus {
@@ -553,7 +748,12 @@ export function getMilestoneStatus(): MilestoneStatus {
   const phaseStartDay = phase === "day-0-50" ? 0 : 50;
   const phaseElapsed = Math.max(programDay - phaseStartDay, 1);
   const phaseWindow = phaseDeadlineDay - phaseStartDay;
-  const expectedByNow = Math.round((phaseElapsed / phaseWindow) * phaseTarget);
+  // Past the phase's own deadline (day-120-plus keeps phaseWindow fixed at
+  // 70 while phaseElapsed keeps growing), the raw ratio can exceed 100% of
+  // the target — clamp so "expected by now" never asks for more than the
+  // whole target, which previously made onTrack mathematically unable to
+  // be true deep into day-120-plus even at full completion.
+  const expectedByNow = Math.min(Math.round((phaseElapsed / phaseWindow) * phaseTarget), phaseTarget);
   const onTrack = phaseProgress >= expectedByNow;
 
   return {

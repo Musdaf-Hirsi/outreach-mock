@@ -10,6 +10,7 @@ import {
   getLastSendInfo,
 } from "./tracking/outreach-log";
 import { computeBaselineViews, evaluateQuote, estimateFairPrice } from "./pricing/cpm-calculator";
+import { mentionsGoldenCountry } from "./utils/audience-check";
 import { sanitizeHumanText } from "./utils/sanitize-text";
 import { runTool } from "./utils/run-tool";
 
@@ -85,6 +86,22 @@ async function main() {
 
   const state = getNegotiationState(channelId, channelName);
   const round = state.negotiationRound + 1;
+
+  // Course technique ("Using Analytics as Leverage") — this was previously
+  // only wired into the web and manager-chat negotiation paths; the CLI
+  // path never read it, so the same channel got audience-leverage in the
+  // web UI and not from the terminal.
+  if (state.audienceNote) {
+    pricingContext += `\nAudience note (from a real media kit check): ${state.audienceNote}`;
+  }
+  // Course technique ("Closing an Influencer That Has an Agency"): what
+  // this agency operator can actually offer beyond the intro, so the
+  // negotiation agent can frame a discount as a trade for a real service
+  // instead of a bare markdown ask — only when negotiating with an agency
+  // contact, per the agent's own instructions.
+  if (process.env.AGENCY_SERVICES_OFFERED) {
+    pricingContext += `\nServices this agency can offer beyond the intro (only relevant if negotiating with an agency contact): ${process.env.AGENCY_SERVICES_OFFERED}`;
+  }
   if (round >= 3) {
     console.log(`\n(This would be negotiation round ${round} — course rule: don't open another back-and-forth past round 3. Accept or disengage instead.)\n`);
   }
@@ -140,7 +157,7 @@ async function main() {
 
   const sendResult = await runTool(sendEmailTool, {
     to,
-    subject: `Re: ${channelName}`,
+    subject: `Re: ${lastSend?.subject ?? channelName}`,
     body,
     channelName,
     niche,
@@ -150,8 +167,21 @@ async function main() {
   });
 
   if (sendResult.status === "sent") {
-    await recordNegotiationRound(channelId, { channelName, quotedPrice, dealStatus });
+    const state = await recordNegotiationRound(channelId, { channelName, quotedPrice, dealStatus });
     console.log(`Sent. Negotiation round ${round}, deal status: ${dealStatus}.`);
+    // Course rule ("Closed an influencer, now what?"): "closed" means
+    // pricing and audience info are actually on file, not just a yes.
+    if (dealStatus === "closed") {
+      const gaps: string[] = [];
+      if (!state.lastQuotedPrice) gaps.push("no price on file");
+      if (!state.audienceNote) gaps.push("no audience/media-kit note on file");
+      else if (!mentionsGoldenCountry(state.audienceNote)) {
+        gaps.push("audience note doesn't mention a high-purchasing-power country (US/UK/Canada/Australia)");
+      }
+      if (gaps.length > 0) {
+        console.log(`(Closed with gaps: ${gaps.join(", ")} — worth filling in before this reaches the brand phase.)`);
+      }
+    }
   } else {
     console.log("Send was skipped by the tool (unexpected for a negotiation reply — check channelId).");
   }

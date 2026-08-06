@@ -122,6 +122,7 @@ export const sendEmailTool = createTool({
       channelName: channelName ?? to,
       to,
       niche: niche ?? "unknown",
+      subject,
       platform,
       kind,
       gmailMessageId: sentMessageId,
